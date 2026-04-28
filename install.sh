@@ -64,6 +64,12 @@ fi
 
 #---------- 2. 编译 ----------
 
+BINARY_NAME="tree"
+if command -v tree &>/dev/null; then
+  echo -e "${YELLOW}检测到系统已安装 tree 命令，将编译输出命名为 treeviz${NC}"
+  BINARY_NAME="treeviz"
+fi
+
 echo -e "${GREEN}开始编译 TreeVisual...${NC}"
 if [ -f "CMakeLists.txt" ]; then
   mkdir -p build
@@ -71,11 +77,11 @@ if [ -f "CMakeLists.txt" ]; then
   cmake ..
   make -j$(nproc)
   cd ..
-  cp build/tree ./
+  cp build/tree "./$BINARY_NAME"
 else
-  g++ -std=c++17 -pthread -O2 src/tree.cpp -o tree
+  g++ -std=c++17 -pthread -O2 src/tree.cpp -o "$BINARY_NAME"
 fi
-echo -e "${GREEN}编译完成，可执行文件: ./tree${NC}"
+echo -e "${GREEN}编译完成，可执行文件: ./$BINARY_NAME${NC}"
 
 #---------- 3. 配置 PATH ----------
 

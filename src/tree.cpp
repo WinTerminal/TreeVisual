@@ -300,7 +300,24 @@ std::string saveToFile(const std::string& content) {
     oss << std::put_time(&tm, "%y-%m-%d-%H-%M-%S") << "-tree.txt";
     fs::path filePath = saveDir / oss.str();
     std::ofstream ofs(filePath, std::ios::binary);
-    if (ofs) ofs.write(content.c_str(), content.size());
+    if (ofs) {
+        ofs.write(content.c_str(), content.size());
+        ofs.write("\n\n", 2);
+        const char* footer = R"( /$$$$$$$$                            /$$    /$$ /$$                               /$$ 
+ |__  $$__/                           | $$   | $$|__/                              | $$ 
+    | $$  /$$$$$$   /$$$$$$   /$$$$$$ | $$   | $$ /$$  /$$$$$$$ /$$   /$$  /$$$$$$ | $$ 
+    | $$ /$$__  $$ /$$__  $$ /$$__  $$|  $$ / $$/| $$ /$$_____/| $$  | $$ |____  $$| $$ 
+    | $$| $$  \__/| $$$$$$$$| $$$$$$$$ \  $$ $$/ | $$|  $$$$$$ | $$  | $$  /$$$$$$$| $$ 
+    | $$| $$      | $$_____/| $$_____/  \  $$$/  | $$ \____  $$| $$  | $$ /$$__  $$| $$ 
+    | $$| $$      |  $$$$$$$|  $$$$$$$   \  $/   | $$ /$$$$$$$/|  $$$$$$/|  $$$$$$$| $$ 
+    |__/|__/       \_______/ \_______/    \_/    |__/|_______/  \______/  \_______/|__/ 
+ Create By TreeVisual Tool
+ Made by WinTerminal
+ Github repo: `https://github.com/WinTerminal/TreeVisual/` 
+ Bilibili: `https://space.bilibili.com/3546863863073060` 
+ © 2026 WinTerminal)";
+        ofs.write(footer, strlen(footer));
+    }
     return filePath.string();
 }
 
