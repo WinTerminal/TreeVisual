@@ -137,7 +137,12 @@ std::vector<std::string> traverse_dir_parallel(const fs::path& dir, const std::s
     }
 
     size_t hw_concurrency = std::thread::hardware_concurrency();
-    const size_t MAX_CONCURRENT_THREADS = (hw_concurrency > 0) ? std::max(size_t(2), hw_concurrency / 2) : size_t(2);
+    size_t result_threads = 2;
+    if (hw_concurrency > 0) {
+        size_t half_hw = hw_concurrency / 2;
+        result_threads = (half_hw > 2) ? half_hw : 2;
+    }
+    const size_t MAX_CONCURRENT_THREADS = result_threads;
     std::vector<std::vector<std::string>> sub_results(dir_count);
     std::atomic<size_t> next_idx(0);
     std::vector<std::thread> workers;
