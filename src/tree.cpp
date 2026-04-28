@@ -136,7 +136,8 @@ std::vector<std::string> traverse_dir_parallel(const fs::path& dir, const std::s
         return result;
     }
 
-    const size_t MAX_CONCURRENT_THREADS = std::max(2u, std::thread::hardware_concurrency() / 2);
+    size_t hw_concurrency = std::thread::hardware_concurrency();
+    const size_t MAX_CONCURRENT_THREADS = (hw_concurrency > 0) ? std::max(size_t(2), hw_concurrency / 2) : size_t(2);
     std::vector<std::vector<std::string>> sub_results(dir_count);
     std::atomic<size_t> next_idx(0);
     std::vector<std::thread> workers;
@@ -175,10 +176,15 @@ fs::path getHomeDir() {
         CoTaskMemFree(buf);
         return p;
     }
-    const char* userprofile = getenv("USERPROFILE");
-    if (userprofile && userprofile[0] != '\0') {
-        return fs::path(userprofile);
+    char* userprofile = nullptr;
+    size_t len = 0;
+    errno_t err = _dupenv_s(&userprofile, &len, "USERPROFILE");
+    if (err == 0 && userprofile && userprofile[0] != '\0') {
+        fs::path p(userprofile);
+        free(userprofile);
+        return p;
     }
+    if (userprofile) free(userprofile);
     throw std::runtime_error("无法确定用户主目录 (Windows)");
 #else
     const char* home = getenv("HOME");
