@@ -80,4 +80,4 @@ tree ~
 
 📄 许可证
 
-MIT License © 2025 WinTerminal
+MIT License © 2026 WinTerminal
