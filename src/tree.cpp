@@ -1,6 +1,3 @@
-// TreeVisual - 跨平台智能目录树工具
-// 编译: g++ -std=c++17 -pthread -O2 src/tree.cpp -o tree
-
 #include <iostream>
 #include <filesystem>
 #include <string>
@@ -17,6 +14,10 @@
 #include <atomic>
 #include <stdexcept>
 #include <locale>
+#include <cstdint>
+#include <ctime>
+#include <memory>
+#include <functional>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -24,6 +25,7 @@
     #include <shlobj.h>
     #pragma comment(lib, "shell32.lib")
     #pragma comment(lib, "user32.lib")
+    #pragma comment(lib, "advapi32.lib")
 #else
     #include <unistd.h>
     #include <sys/types.h>
@@ -36,212 +38,502 @@ namespace fs = std::filesystem;
 constexpr size_t DISPLAY_LINE_THRESHOLD = 50;
 constexpr size_t CLIPBOARD_LINE_THRESHOLD = 100;
 
-// ---------- 线程安全权限错误记录 ----------
-std::mutex perm_mutex;
-bool has_permission_error = false;
-fs::path first_permission_error_path;
-
-void record_permission_error(const fs::path& path) {
-    std::lock_guard<std::mutex> lock(perm_mutex);
-    if (!has_permission_error) {
-        has_permission_error = true;
-        first_permission_error_path = path;
-    }
-}
-
-// ---------- 全局函数声明 ----------
-fs::path getHomeDir();
-bool isAdmin();
-bool runAsAdmin(const std::vector<std::string>& args);
-bool copyToClipboard(const std::string& text);
-std::string saveToFile(const std::string& content);
-
-// ---------- 安全判断目录（不追踪符号链接）----------
-bool is_directory_nofollow(const fs::directory_entry& entry) {
-    std::error_code ec;
-    auto st = entry.symlink_status(ec);
-    if (ec) return false;
-    if (fs::is_symlink(st)) return false;
-    return fs::is_directory(st);
-}
-
-// ---------- 核心并行遍历函数 ----------
-std::vector<std::string> traverse_dir_parallel(const fs::path& dir, const std::string& prefix, bool is_last);
-
-std::vector<std::string> build_tree(const fs::path& root) {
-    std::vector<std::string> lines;
-    std::string root_name = root.filename().string();
-    if (root_name.empty()) root_name = root.string();
-    lines.push_back(root_name + "/");
-    auto children = traverse_dir_parallel(root, "", true);
-    lines.insert(lines.end(), children.begin(), children.end());
-    return lines;
-}
-
-std::vector<std::string> traverse_dir_parallel(const fs::path& dir, const std::string& prefix, bool is_last) {
-    std::error_code ec;
-    fs::directory_iterator it(dir, ec);
-    if (ec) {
-        record_permission_error(dir);
-        return { prefix + "[无权限访问]" };
+class PermissionErrorTracker {
+public:
+    static PermissionErrorTracker& instance() {
+        static PermissionErrorTracker tracker;
+        return tracker;
     }
 
-    std::vector<fs::directory_entry> entries;
-    for (auto& entry : it) entries.push_back(entry);
-
-    auto to_lower_str = [](std::string s) -> std::string {
-        std::transform(s.begin(), s.end(), s.begin(),
-            [](unsigned char c) { return static_cast<char>(std::tolower(static_cast<int>(c))); });
-        return s;
-    };
-
-    std::sort(entries.begin(), entries.end(),
-        [&](const fs::directory_entry& a, const fs::directory_entry& b) {
-            std::string an = to_lower_str(a.path().filename().string());
-            std::string bn = to_lower_str(b.path().filename().string());
-            return an < bn;
-        });
-
-    std::vector<std::string> result;
-    result.reserve(entries.size());
-
-    std::vector<fs::directory_entry> subdirs, files;
-    for (const auto& entry : entries) {
-        if (is_directory_nofollow(entry))
-            subdirs.push_back(entry);
-        else
-            files.push_back(entry);
-    }
-
-    for (const auto& entry : files)
-        result.push_back(prefix + "├─ " + entry.path().filename().string());
-
-    const size_t dir_count = subdirs.size();
-    if (dir_count == 0) return result;
-
-    auto get_connector = [&](size_t idx) -> std::string {
-        bool is_last_item = (idx == dir_count - 1) && files.empty();
-        return is_last_item ? "└─ " : "├─ ";
-    };
-
-    const size_t PARALLEL_THRESHOLD = 2;
-    if (dir_count < PARALLEL_THRESHOLD) {
-        for (size_t i = 0; i < dir_count; ++i) {
-            const auto& sub = subdirs[i];
-            bool sub_is_last = (i == dir_count-1) && files.empty();
-            std::string sub_prefix = prefix + (sub_is_last ? "    " : "│   ");
-            auto sub_lines = traverse_dir_parallel(sub.path(), sub_prefix, sub_is_last);
-            result.insert(result.end(), sub_lines.begin(), sub_lines.end());
+    void record(const fs::path& path) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!has_error_) {
+            has_error_ = true;
+            first_path_ = path;
         }
-        return result;
     }
 
-    size_t hw_concurrency = std::thread::hardware_concurrency();
-    size_t result_threads = 2;
-    if (hw_concurrency > 0) {
-        size_t half_hw = hw_concurrency / 2;
-        result_threads = (half_hw > 2) ? half_hw : 2;
+    bool hasError() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return has_error_;
     }
-    const size_t MAX_CONCURRENT_THREADS = result_threads;
-    std::vector<std::vector<std::string>> sub_results(dir_count);
-    std::atomic<size_t> next_idx(0);
-    std::vector<std::thread> workers;
-    workers.reserve(MAX_CONCURRENT_THREADS);
 
-    for (size_t w = 0; w < MAX_CONCURRENT_THREADS; ++w) {
-        workers.emplace_back([&]() {
-            while (true) {
-                size_t idx = next_idx.fetch_add(1);
-                if (idx >= dir_count) break;
-                const auto& sub = subdirs[idx];
-                bool sub_is_last = (idx == dir_count - 1) && files.empty();
-                std::string sub_prefix = prefix + (sub_is_last ? "    " : "│   ");
-                sub_results[idx] = traverse_dir_parallel(sub.path(), sub_prefix, sub_is_last);
+    fs::path firstPath() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return first_path_;
+    }
+
+    void reset() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        has_error_ = false;
+        first_path_.clear();
+    }
+
+private:
+    PermissionErrorTracker() : has_error_(false) {}
+    ~PermissionErrorTracker() = default;
+
+    PermissionErrorTracker(const PermissionErrorTracker&) = delete;
+    PermissionErrorTracker& operator=(const PermissionErrorTracker&) = delete;
+
+    mutable std::mutex mutex_;
+    bool has_error_;
+    fs::path first_path_;
+};
+
+class Node {
+public:
+    enum class Type { File, Directory };
+
+    Node(const std::string& name, Type type)
+        : name_(name), type_(type), children_() {}
+
+    const std::string& name() const { return name_; }
+    Type type() const { return type_; }
+    const std::vector<std::shared_ptr<Node>>& children() const { return children_; }
+
+    void addChild(std::shared_ptr<Node> child) {
+        children_.push_back(std::move(child));
+    }
+
+    bool isDirectory() const { return type_ == Type::Directory; }
+    bool isFile() const { return type_ == Type::File; }
+
+private:
+    std::string name_;
+    Type type_;
+    std::vector<std::shared_ptr<Node>> children_;
+};
+
+class ITraversalPolicy {
+public:
+    virtual ~ITraversalPolicy() = default;
+    virtual std::vector<fs::directory_entry> listDirectory(const fs::path& dir, bool show_hidden) = 0;
+    virtual bool isDirectory(const fs::directory_entry& entry) = 0;
+};
+
+class DefaultTraversalPolicy : public ITraversalPolicy {
+public:
+    std::vector<fs::directory_entry> listDirectory(const fs::path& dir, bool show_hidden) override {
+        std::error_code ec;
+        fs::directory_iterator it(dir, ec);
+        if (ec) {
+            PermissionErrorTracker::instance().record(dir);
+            return {};
+        }
+
+        std::vector<fs::directory_entry> entries;
+        for (auto& entry : it) {
+            const auto& name = entry.path().filename().string();
+            if (!show_hidden && !name.empty() && name[0] == '.')
+                continue;
+            entries.push_back(entry);
+        }
+
+        std::sort(entries.begin(), entries.end(),
+            [](const fs::directory_entry& a, const fs::directory_entry& b) {
+                std::string an = a.path().filename().string();
+                std::string bn = b.path().filename().string();
+                std::transform(an.begin(), an.end(), an.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(static_cast<int>(c))); });
+                std::transform(bn.begin(), bn.end(), bn.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(static_cast<int>(c))); });
+                return an < bn;
+            });
+
+        return entries;
+    }
+
+    bool isDirectory(const fs::directory_entry& entry) override {
+        std::error_code ec;
+        auto st = entry.symlink_status(ec);
+        if (ec) return false;
+        if (fs::is_symlink(st)) return false;
+        return fs::is_directory(st);
+    }
+};
+
+class DirectoryTree {
+public:
+    DirectoryTree(std::unique_ptr<ITraversalPolicy> policy = std::make_unique<DefaultTraversalPolicy>())
+        : root_(nullptr), policy_(std::move(policy)), root_path_() {}
+
+    virtual ~DirectoryTree() = default;
+
+    virtual std::shared_ptr<Node> build(const fs::path& root, bool show_hidden) {
+        PermissionErrorTracker::instance().reset();
+        root_path_ = root;
+        root_ = buildNode(root, show_hidden);
+        return root_;
+    }
+
+    const fs::path& rootPath() const { return root_path_; }
+    void setRootPath(const fs::path& path) { root_path_ = path; }
+
+protected:
+    std::shared_ptr<Node> root_;
+    fs::path root_path_;
+
+    virtual std::shared_ptr<Node> buildNode(const fs::path& path, bool show_hidden) {
+        std::string name = path.filename().string();
+        if (name.empty()) name = path.string();
+
+        auto node = std::make_shared<Node>(name, Node::Type::Directory);
+
+        auto entries = policy_->listDirectory(path, show_hidden);
+        if (entries.empty()) {
+            return node;
+        }
+
+        std::vector<fs::directory_entry> subdirs, files;
+        for (const auto& entry : entries) {
+            if (policy_->isDirectory(entry))
+                subdirs.push_back(entry);
+            else
+                files.push_back(entry);
+        }
+
+        for (const auto& entry : files) {
+            auto file = std::make_shared<Node>(entry.path().filename().string(), Node::Type::File);
+            node->addChild(file);
+        }
+
+        for (const auto& entry : subdirs) {
+            auto dir = buildNode(entry.path(), show_hidden);
+            node->addChild(dir);
+        }
+
+        return node;
+    }
+
+    std::unique_ptr<ITraversalPolicy> policy_;
+};
+
+class ParallelDirectoryTree : public DirectoryTree {
+public:
+    ParallelDirectoryTree(unsigned int max_threads = 0)
+        : DirectoryTree(std::make_unique<DefaultTraversalPolicy>())
+        , max_threads_(max_threads) {}
+
+    std::shared_ptr<Node> build(const fs::path& root, bool show_hidden) override {
+        PermissionErrorTracker::instance().reset();
+
+        DefaultTraversalPolicy policy;
+        auto entries = policy.listDirectory(root, show_hidden);
+        
+        std::string root_name = root.filename().string();
+        if (root_name.empty()) root_name = root.string();
+        root_ = std::make_shared<Node>(root_name, Node::Type::Directory);
+        root_path_ = root;
+
+        if (entries.empty()) {
+            return root_;
+        }
+
+        std::vector<fs::directory_entry> subdirs, files;
+        for (const auto& entry : entries) {
+            if (policy.isDirectory(entry))
+                subdirs.push_back(entry);
+            else
+                files.push_back(entry);
+        }
+
+        for (const auto& entry : files) {
+            auto file = std::make_shared<Node>(entry.path().filename().string(), Node::Type::File);
+            root_->addChild(file);
+        }
+
+        if (subdirs.empty()) {
+            return root_;
+        }
+
+        unsigned int num_threads = (max_threads_ > 0) ? max_threads_
+            : std::max(1u, std::thread::hardware_concurrency());
+        num_threads = std::min(num_threads, static_cast<unsigned int>(subdirs.size()));
+
+        std::vector<std::shared_ptr<Node>> sub_results(subdirs.size());
+        std::atomic<size_t> next_idx(0);
+        std::vector<std::thread> workers;
+
+        for (unsigned int w = 0; w < num_threads; ++w) {
+            workers.emplace_back([&, show_hidden]() {
+                DefaultTraversalPolicy local_policy;
+                while (true) {
+                    size_t idx = next_idx.fetch_add(1);
+                    if (idx >= subdirs.size()) break;
+                    sub_results[idx] = buildSubTree(subdirs[idx].path(), show_hidden, local_policy);
+                }
+            });
+        }
+        for (auto& worker : workers) worker.join();
+
+        for (size_t i = 0; i < subdirs.size(); ++i) {
+            auto& sub = subdirs[i];
+            auto sub_node = sub_results[i];
+            auto named_node = std::make_shared<Node>(
+                sub.path().filename().string() + "/", Node::Type::Directory);
+            for (const auto& child : sub_node->children()) {
+                named_node->addChild(child);
             }
-        });
+            root_->addChild(named_node);
+        }
+
+        return root_;
     }
 
-    for (auto& worker : workers) worker.join();
+private:
+    std::shared_ptr<Node> buildSubTree(const fs::path& path, bool show_hidden, DefaultTraversalPolicy& policy) {
+        std::string name = path.filename().string();
+        if (name.empty()) name = path.string();
 
-    for (size_t i = 0; i < dir_count; ++i) {
-        const auto& sub = subdirs[i];
-        std::string connector = get_connector(i);
-        result.push_back(prefix + connector + sub.path().filename().string() + "/");
-        result.insert(result.end(), sub_results[i].begin(), sub_results[i].end());
+        auto node = std::make_shared<Node>(name, Node::Type::Directory);
+
+        auto entries = policy.listDirectory(path, show_hidden);
+        if (entries.empty()) {
+            return node;
+        }
+
+        std::vector<fs::directory_entry> subdirs, files;
+        for (const auto& entry : entries) {
+            if (policy.isDirectory(entry))
+                subdirs.push_back(entry);
+            else
+                files.push_back(entry);
+        }
+
+        for (const auto& entry : files) {
+            auto file = std::make_shared<Node>(entry.path().filename().string(), Node::Type::File);
+            node->addChild(file);
+        }
+
+        for (const auto& entry : subdirs) {
+            auto sub = buildSubTree(entry.path(), show_hidden, policy);
+            node->addChild(sub);
+        }
+
+        return node;
     }
-    return result;
-}
 
-// ---------- 平台具体实现 ----------
-fs::path getHomeDir() {
+    unsigned int max_threads_;
+};
+
+class IOutputHandler {
+public:
+    virtual ~IOutputHandler() = default;
+    virtual bool handle(const std::string& content, size_t line_count) = 0;
+};
+
+class ConsoleOutputHandler : public IOutputHandler {
+public:
+    bool handle(const std::string& content, size_t line_count) override {
+        std::cout << content;
+        return true;
+    }
+};
+
+class ClipboardOutputHandler : public IOutputHandler {
+public:
+    bool handle(const std::string& content, size_t line_count) override {
+        return copyToClipboard(content);
+    }
+
+private:
+    bool copyToClipboard(const std::string& text) {
 #ifdef _WIN32
-    wchar_t* buf = nullptr;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &buf))) {
-        fs::path p(buf);
-        CoTaskMemFree(buf);
-        return p;
-    }
-    char* userprofile = nullptr;
-    size_t len = 0;
-    errno_t err = _dupenv_s(&userprofile, &len, "USERPROFILE");
-    if (err == 0 && userprofile && userprofile[0] != '\0') {
-        fs::path p(userprofile);
-        free(userprofile);
-        return p;
-    }
-    if (userprofile) free(userprofile);
-    throw std::runtime_error("无法确定用户主目录 (Windows)");
+        if (!OpenClipboard(nullptr)) return false;
+        EmptyClipboard();
+        int utf16size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+        if (utf16size == 0) { CloseClipboard(); return false; }
+        HANDLE hMem = GlobalAlloc(GMEM_MOVEABLE, utf16size * sizeof(wchar_t));
+        if (!hMem) { CloseClipboard(); return false; }
+        wchar_t* wstr = static_cast<wchar_t*>(GlobalLock(hMem));
+        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wstr, utf16size);
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+        CloseClipboard();
+        return true;
 #else
-    const char* home = getenv("HOME");
-    if (home && home[0] != '\0') {
-        return fs::path(home);
-    }
-    struct passwd* pw = getpwuid(getuid());
-    if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
-        return fs::path(pw->pw_dir);
-    }
-    throw std::runtime_error("无法确定用户主目录 (Unix)");
-#endif
-}
-
-bool isAdmin() {
-#ifdef _WIN32
-    BOOL isAdmin = FALSE;
-    PSID adminGroup = nullptr;
-    SID_IDENTIFIER_AUTHORITY ntAuthority = SECURITY_NT_AUTHORITY;
-    if (AllocateAndInitializeSid(&ntAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID,
-                                 DOMAIN_ALIAS_RID_ADMINS, 0,0,0,0,0,0, &adminGroup)) {
-        CheckTokenMembership(nullptr, adminGroup, &isAdmin);
-        FreeSid(adminGroup);
-    }
-    return isAdmin != FALSE;
+        const char* cmd = nullptr;
+#ifdef __APPLE__
+        cmd = "pbcopy";
 #else
-    return geteuid() == 0;
+        if (system("which xclip >/dev/null 2>&1") == 0)
+            cmd = "xclip -selection clipboard";
+        else if (system("which xsel >/dev/null 2>&1") == 0)
+            cmd = "xsel -i -b";
+        else
+            return false;
 #endif
-}
+        FILE* pipe = popen(cmd, "w");
+        if (!pipe) return false;
+        fwrite(text.c_str(), 1, text.size(), pipe);
+        pclose(pipe);
+        return true;
+#endif
+    }
+};
 
-bool runAsAdmin(const std::vector<std::string>& args) {
+class FileOutputHandler : public IOutputHandler {
+public:
+    bool handle(const std::string& content, size_t line_count) override {
+        try {
+            fs::path path = saveToFile(content);
+            std::cout << "Tree contains " << line_count << " lines, automatically saved to: " << path.string() << "\n";
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "Save failed: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+private:
+    fs::path getHomeDir() {
 #ifdef _WIN32
-    std::cout << R"(/$$$$$$  /$$   /$$ /$$$$$$$$ /$$$$$$         /$$$$$$  /$$$$$$$  /$$      /$$ /$$$$$$ /$$   /$$
+        wchar_t* buf = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &buf))) {
+            fs::path p(buf);
+            CoTaskMemFree(buf);
+            return p;
+        }
+        wchar_t* wprofile = _wgetenv(L"USERPROFILE");
+        if (wprofile && wprofile[0] != L'\0')
+            return fs::path(wprofile);
+        throw std::runtime_error("Cannot determine user home directory");
+#else
+        const char* home = getenv("HOME");
+        if (home && home[0] != '\0')
+            return fs::path(home);
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0')
+            return fs::path(pw->pw_dir);
+        throw std::runtime_error("Cannot determine user home directory");
+#endif
+    }
+
+    fs::path saveToFile(const std::string& content) {
+        fs::path home = getHomeDir();
+        fs::path saveDir = home / "TreeVisual";
+        fs::create_directories(saveDir);
+        auto now = std::chrono::system_clock::now();
+        auto tt = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+#ifdef _WIN32
+        localtime_s(&tm, &tt);
+#else
+        localtime_r(&tt, &tm);
+#endif
+        std::ostringstream oss;
+        oss << std::put_time(&tm, "%y-%m-%d-%H-%M-%S") << "-tree.txt";
+        fs::path filePath = saveDir / oss.str();
+        std::ofstream ofs(filePath, std::ios::binary);
+        if (!ofs)
+            throw std::runtime_error("Cannot write to file: " + filePath.string());
+        ofs.write(content.c_str(), content.size());
+        ofs.write("\n\n", 2);
+        const char* footer =
+            " /$$$$$$$$                            /$$    /$$ /$$                               /$$\n"
+            " |__  $$__/                           | $$   | $$|__/                              | $$\n"
+            "    | $$  /$$$$$$   /$$$$$$   /$$$$$$ | $$   | $$ /$$  /$$$$$$$ /$$   /$$  /$$$$$$ | $$\n"
+            "    | $$ /$$__  $$ /$$__  $$ /$$__  $$|  $$ / $$/| $$ /$$_____/| $$  | $$ |____  $$| $$\n"
+            "    | $$| $$  \\__/| $$$$$$$$| $$$$$$$$ \\  $$ $$/ | $$|  $$$$$$ | $$  | $$  /$$$$$$$| $$\n"
+            "    | $$| $$      | $$_____/| $$_____/  \\  $$$/  | $$ \\____  $$| $$  | $$ /$$__  $$| $$\n"
+            "    | $$| $$      |  $$$$$$$|  $$$$$$$   \\  $/   | $$ /$$$$$$$/|  $$$$$$/|  $$$$$$$| $$\n"
+            "    |__/|__/       \\_______/ \\_______/    \\_/    |__/|_______/  \\______/  \\_______/|__/\n"
+            " Created By TreeVisual Tool\n"
+            " Made by WinTerminal\n"
+            " Github repo: `https://github.com/WinTerminal/TreeVisual/`\n"
+            " Bilibili: `https://space.bilibili.com/3546863863073060`\n"
+            " © 2026 WinTerminal)";
+ofs.write(footer, strlen(footer));
+        return filePath;
+    }
+};
+
+class IPlatformHelper {
+public:
+    virtual ~IPlatformHelper() = default;
+    virtual fs::path getHomeDir() = 0;
+    virtual bool isAdmin() = 0;
+    virtual bool runAsAdmin(const std::vector<std::string>& args) = 0;
+};
+
+#ifdef _WIN32
+
+class WindowsPlatformHelper : public IPlatformHelper {
+public:
+    fs::path getHomeDir() override {
+        wchar_t* buf = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &buf))) {
+            fs::path p(buf);
+            CoTaskMemFree(buf);
+            return p;
+        }
+        wchar_t* wprofile = _wgetenv(L"USERPROFILE");
+        if (wprofile && wprofile[0] != L'\0')
+            return fs::path(wprofile);
+        throw std::runtime_error("Cannot determine user home directory");
+    }
+
+    bool isAdmin() override {
+        BOOL isAdmin = FALSE;
+        PSID adminGroup = nullptr;
+        SID_IDENTIFIER_AUTHORITY ntAuthority = SECURITY_NT_AUTHORITY;
+        if (AllocateAndInitializeSid(&ntAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID,
+                                     DOMAIN_ALIAS_RID_ADMINS, 0,0,0,0,0,0, &adminGroup)) {
+            if (adminGroup) {
+                if (!CheckTokenMembership(nullptr, adminGroup, &isAdmin))
+                    isAdmin = FALSE;
+                FreeSid(adminGroup);
+            }
+        }
+        return isAdmin != FALSE;
+    }
+
+    bool runAsAdmin(const std::vector<std::string>& args) override {
+        std::cout << R"(/$$$$$$  /$$   /$$ /$$$$$$$$ /$$$$$$         /$$$$$$  /$$$$$$$  /$$      /$$ /$$$$$$ /$$   /$$
  /$$__  $$| $$  | $$|__  $$__//$$__  $$       /$$__  $$| $$__  $$| $$$    /$$$|_  $$_/| $$$ | $$
-| $$  \ $$| $$  | $$   | $$  | $$  \ $$      | $$  \ $$| $$  \ $$| $$$$  /$$$$  | $$  | $$$$| $$
+| $$  \ $$| $$  | $$   | $$  | $$  \ $$      | $$  \ $$| $$  $$| $$$$  /$$$$  | $$  | $$$$| $$
 | $$$$$$$$| $$  | $$   | $$  | $$  | $$      | $$$$$$$$| $$  | $$| $$ $$/$$ $$  | $$  | $$ $$ $$
 | $$__  $$| $$  | $$   | $$  | $$  | $$      | $$__  $$| $$  | $$| $$  $$$| $$  | $$  | $$  $$$$
 | $$  | $$| $$  | $$   | $$  | $$  | $$      | $$  | $$| $$  | $$| $$\  $ | $$  | $$  | $$\  $$$
 | $$  | $$|  $$$$$$/   | $$  |  $$$$$$/      | $$  | $$| $$$$$$$/| $$ \/  | $$ /$$$$$$| $$ \  $$
 |__/  |__/ \______/    |__/   \______/       |__/  |__/|_______/ |__/     |__/|______/|__/  \__/
 )" << std::endl;
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    std::wstring cmdLine;
-    for (const auto& a : args) {
-        if (!cmdLine.empty()) cmdLine += L" ";
-        cmdLine += L"\"" + std::wstring(a.begin(), a.end()) + L"\"";
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        std::wstring cmdLine;
+        for (const auto& a : args) {
+            if (!cmdLine.empty()) cmdLine += L" ";
+            int size = MultiByteToWideChar(CP_UTF8, 0, a.c_str(), -1, nullptr, 0);
+            std::wstring wArg(size - 1, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, a.c_str(), -1, &wArg[0], size);
+            cmdLine += L"\"" + wArg + L"\"";
+        }
+        HINSTANCE result = ShellExecuteW(nullptr, L"runas", exePath, cmdLine.c_str(), nullptr, SW_NORMAL);
+        return reinterpret_cast<intptr_t>(result) > 32;
     }
-    HINSTANCE result = ShellExecuteW(nullptr, L"runas", exePath, cmdLine.c_str(), nullptr, SW_NORMAL);
-    return reinterpret_cast<intptr_t>(result) > 32;
+};
+
 #else
-    std::cout << R"(/$$$$$$  /$$   /$$ /$$$$$$$$ /$$$$$$         /$$$$$$  /$$   /$$ /$$$$$$$   /$$$$$$ 
+
+class UnixPlatformHelper : public IPlatformHelper {
+public:
+    fs::path getHomeDir() override {
+        const char* home = getenv("HOME");
+        if (home && home[0] != '\0')
+            return fs::path(home);
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0')
+            return fs::path(pw->pw_dir);
+        throw std::runtime_error("Cannot determine user home directory");
+    }
+
+    bool isAdmin() override {
+        return geteuid() == 0;
+    }
+
+    bool runAsAdmin(const std::vector<std::string>& args) override {
+        std::cout << R"(/$$$$$$  /$$   /$$ /$$$$$$$$ /$$$$$$         /$$$$$$  /$$   /$$ /$$$$$$$   /$$$$$$ 
  /$$__  $$| $$  | $$|__  $$__//$$__  $$       /$$__  $$| $$  | $$| $$__  $$ /$$__  $$
 | $$  \ $$| $$  | $$   | $$  | $$  \ $$      | $$  \__/| $$  | $$| $$  \ $$| $$  \ $$
 | $$$$$$$$| $$  | $$   | $$  | $$  | $$      |  $$$$$$ | $$  | $$| $$  | $$| $$  | $$
@@ -250,145 +542,140 @@ bool runAsAdmin(const std::vector<std::string>& args) {
 | $$  | $$|  $$$$$$/   | $$  |  $$$$$$/      |  $$$$$$/|  $$$$$$/| $$$$$$$/|  $$$$$$/
 |__/  |__/ \______/    |__/   \______/        \______/  \______/ |_______/  \______/ 
 )" << std::endl;
-    std::string exePath = fs::canonical("/proc/self/exe").string();
-    std::vector<const char*> argv;
-    argv.push_back("sudo");
-    argv.push_back(exePath.c_str());
-    for (const auto& a : args) argv.push_back(a.c_str());
-    argv.push_back(nullptr);
-    execvp("sudo", const_cast<char* const*>(argv.data()));
-    perror("execvp sudo");
-    return false;
-#endif
-}
-
-bool copyToClipboard(const std::string& text) {
-#ifdef _WIN32
-    if (!OpenClipboard(nullptr)) return false;
-    EmptyClipboard();
-    int utf16size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-    if (utf16size == 0) { CloseClipboard(); return false; }
-    HANDLE hMem = GlobalAlloc(GMEM_MOVEABLE, utf16size * sizeof(wchar_t));
-    if (!hMem) { CloseClipboard(); return false; }
-    wchar_t* wstr = (wchar_t*)GlobalLock(hMem);
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wstr, utf16size);
-    GlobalUnlock(hMem);
-    SetClipboardData(CF_UNICODETEXT, hMem);
-    CloseClipboard();
-    return true;
-#else
-    const char* cmd = nullptr;
-#ifdef __APPLE__
-    cmd = "pbcopy";
-#else
-    if (system("which xclip >/dev/null 2>&1") == 0)
-        cmd = "xclip -selection clipboard";
-    else if (system("which xsel >/dev/null 2>&1") == 0)
-        cmd = "xsel -i -b";
-    else return false;
-#endif
-    FILE* pipe = popen(cmd, "w");
-    if (!pipe) return false;
-    fwrite(text.c_str(), 1, text.size(), pipe);
-    pclose(pipe);
-    return true;
-#endif
-}
-
-std::string saveToFile(const std::string& content) {
-    fs::path home = getHomeDir();
-    fs::path saveDir = home / "TreeVisual";
-    fs::create_directories(saveDir);
-    auto now = std::chrono::system_clock::now();
-    auto tt = std::chrono::system_clock::to_time_t(now);
-    std::tm tm;
-#ifdef _WIN32
-    localtime_s(&tm, &tt);
-#else
-    localtime_r(&tt, &tm);
-#endif
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%y-%m-%d-%H-%M-%S") << "-tree.txt";
-    fs::path filePath = saveDir / oss.str();
-    std::ofstream ofs(filePath, std::ios::binary);
-    if (ofs) {
-        ofs.write(content.c_str(), content.size());
-        ofs.write("\n\n", 2);
-        const char* footer = R"( /$$$$$$$$                            /$$    /$$ /$$                               /$$ 
- |__  $$__/                           | $$   | $$|__/                              | $$ 
-    | $$  /$$$$$$   /$$$$$$   /$$$$$$ | $$   | $$ /$$  /$$$$$$$ /$$   /$$  /$$$$$$ | $$ 
-    | $$ /$$__  $$ /$$__  $$ /$$__  $$|  $$ / $$/| $$ /$$_____/| $$  | $$ |____  $$| $$ 
-    | $$| $$  \__/| $$$$$$$$| $$$$$$$$ \  $$ $$/ | $$|  $$$$$$ | $$  | $$  /$$$$$$$| $$ 
-    | $$| $$      | $$_____/| $$_____/  \  $$$/  | $$ \____  $$| $$  | $$ /$$__  $$| $$ 
-    | $$| $$      |  $$$$$$$|  $$$$$$$   \  $/   | $$ /$$$$$$$/|  $$$$$$/|  $$$$$$$| $$ 
-    |__/|__/       \_______/ \_______/    \_/    |__/|_______/  \______/  \_______/|__/ 
- Create By TreeVisual Tool
- Made by WinTerminal
- Github repo: `https://github.com/WinTerminal/TreeVisual/` 
- Bilibili: `https://space.bilibili.com/3546863863073060` 
- © 2026 WinTerminal)";
-        ofs.write(footer, strlen(footer));
+        std::string exePath = fs::canonical("/proc/self/exe").string();
+        std::vector<const char*> argv;
+        argv.push_back("sudo");
+        argv.push_back(exePath.c_str());
+        for (const auto& a : args) argv.push_back(a.c_str());
+        argv.push_back(nullptr);
+        execvp("sudo", const_cast<char* const*>(argv.data()));
+        perror("execvp sudo");
+        return false;
     }
-    return filePath.string();
-}
+};
 
-// ---------- 主函数 ----------
-int main(int argc, char* argv[]) {
-    bool elevated = false;
-    std::vector<std::string> userArgs;
-    for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--elevated") == 0)
-            elevated = true;
-        else
-            userArgs.push_back(argv[i]);
+#endif
+
+class TreeFormatter {
+public:
+    static std::string format(const std::shared_ptr<Node>& root, bool show_hidden) {
+        std::vector<std::string> lines;
+        formatNode(root, "", true, lines);
+        std::string result;
+        for (const auto& line : lines)
+            result += line + "\n";
+        return result;
     }
 
-    fs::path target;
-    if (!userArgs.empty())
-        target = fs::absolute(fs::path(userArgs[0]));
-    else
-        target = fs::current_path();
+private:
+    static void formatNode(const std::shared_ptr<Node>& node, const std::string& prefix,
+                         bool is_last, std::vector<std::string>& lines) {
+        std::string name = node->name();
+        if (node->isDirectory() && name.find('/') == std::string::npos)
+            name += "/";
 
-    auto lines = build_tree(target);
-    size_t lineCount = lines.size();
-    std::string treeText;
-    for (const auto& line : lines)
-        treeText += line + "\n";
+        if (!prefix.empty()) {
+            std::string connector = is_last ? "└─ " : "├─ ";
+            lines.push_back(prefix + connector + name);
+        } else {
+            lines.push_back(name);
+        }
 
-    if (has_permission_error && !isAdmin() && !elevated) {
-        std::cout << "\n警告：无法访问目录 \"" << first_permission_error_path.string()
-                  << "\"，需要更高权限才能完整显示目录树。\n";
-        std::string choice;
-        while (true) {
-            std::cout << "是否尝试以管理员/root 权限重新运行？(y/n): ";
-            std::getline(std::cin, choice);
-            if (choice == "y" || choice == "yes" || choice == "是") {
-                std::vector<std::string> newArgs = userArgs;
-                newArgs.push_back("--elevated");
-                runAsAdmin(newArgs);
-                return 0;
-            } else if (choice == "n" || choice == "no" || choice == "否" || choice.empty()) {
-                std::cout << "将以普通权限继续运行，无权目录将被跳过（显示[无权限访问]）。\n";
-                break;
-            } else {
-                std::cout << "请输入 y 或 n。\n";
-            }
+        const auto& children = node->children();
+        if (children.empty()) return;
+
+        size_t count = children.size();
+        for (size_t i = 0; i < count; ++i) {
+            bool child_is_last = (i == count - 1);
+            std::string child_prefix = prefix + (is_last ? "    " : "│   ");
+            formatNode(children[i], child_prefix, child_is_last, lines);
         }
     }
+};
 
-    if (lineCount <= DISPLAY_LINE_THRESHOLD) {
-        std::cout << treeText;
-        if (copyToClipboard(treeText))
-            std::cout << "\n（共 " << lineCount << " 行，已自动复制到剪贴板）\n";
-    } else if (lineCount <= CLIPBOARD_LINE_THRESHOLD) {
-        if (copyToClipboard(treeText))
-            std::cout << "目录树共 " << lineCount << " 行，已自动复制到剪贴板（未显示）\n";
-        else
-            std::cout << "复制失败，以下为目录树内容：\n" << treeText;
-    } else {
-        std::string savedPath = saveToFile(treeText);
-        std::cout << "目录树共 " << lineCount << " 行，已自动保存至：" << savedPath << "\n";
+class App {
+public:
+    App() {
+#ifdef _WIN32
+        platform_ = std::make_unique<WindowsPlatformHelper>();
+#else
+        platform_ = std::make_unique<UnixPlatformHelper>();
+#endif
     }
 
-    return 0;
+    int run(int argc, char* argv[]) {
+        bool elevated = false;
+        bool show_hidden = false;
+        std::vector<std::string> userArgs;
+
+        for (int i = 1; i < argc; ++i) {
+            if (strcmp(argv[i], "--elevated") == 0)
+                elevated = true;
+            else if (strcmp(argv[i], "--hidden") == 0)
+                show_hidden = true;
+            else
+                userArgs.push_back(argv[i]);
+        }
+
+        fs::path target;
+        if (!userArgs.empty())
+            target = fs::absolute(fs::path(userArgs[0]));
+        else
+            target = fs::current_path();
+
+        auto tree = std::make_unique<ParallelDirectoryTree>();
+        auto root = tree->build(target, show_hidden);
+
+        std::string treeText = TreeFormatter::format(root, show_hidden);
+        size_t lineCount = std::count(treeText.begin(), treeText.end(), '\n');
+
+        if (PermissionErrorTracker::instance().hasError() && !platform_->isAdmin() && !elevated) {
+            std::cout << "\nWarning: Cannot access directory \""
+                      << PermissionErrorTracker::instance().firstPath().string()
+                      << "\", higher privileges required for a complete tree.\n";
+            std::string choice;
+            while (true) {
+                std::cout << "Attempt to re-run with administrator/root privileges? (y/n): ";
+                std::getline(std::cin, choice);
+                if (choice == "y" || choice == "yes" || choice == "是") {
+                    std::vector<std::string> newArgs = userArgs;
+                    newArgs.push_back("--elevated");
+                    if (show_hidden) newArgs.push_back("--hidden");
+                    platform_->runAsAdmin(newArgs);
+                    return 0;
+                } else if (choice == "n" || choice == "no" || choice == "否" || choice.empty()) {
+                    std::cout << "Continuing with normal privileges; inaccessible entries will be shown as [Permission denied].\n";
+                    break;
+                } else {
+                    std::cout << "Please enter y or n.\n";
+                }
+            }
+        }
+
+        if (lineCount <= DISPLAY_LINE_THRESHOLD) {
+            std::cout << treeText;
+            ClipboardOutputHandler clipboard;
+            if (clipboard.handle(treeText, lineCount))
+                std::cout << "\n(" << lineCount << " lines, automatically copied to clipboard)\n";
+        } else if (lineCount <= CLIPBOARD_LINE_THRESHOLD) {
+            ClipboardOutputHandler clipboard;
+            if (clipboard.handle(treeText, lineCount))
+                std::cout << "Tree contains " << lineCount << " lines, automatically copied to clipboard (not displayed)\n";
+            else
+                std::cout << "Clipboard copy failed, displaying tree:\n" << treeText;
+        } else {
+            FileOutputHandler file_handler;
+            file_handler.handle(treeText, lineCount);
+        }
+
+        return 0;
+    }
+
+private:
+    std::unique_ptr<IPlatformHelper> platform_;
+};
+
+int main(int argc, char* argv[]) {
+    App app;
+    return app.run(argc, argv);
 }

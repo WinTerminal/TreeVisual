@@ -2,9 +2,11 @@
 [![MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat)](https://github.com/WinTerminal/TreeVisual)
 
-[English](./docs/README.md) | [简体中文](./docs/README-zh.md) | [繁體中文](./docs/README-tc.md)
+[English](./README.md) | [简体中文](./README-zh.md) | [繁體中文](./README-tc.md)
 
-一个现代化的命令行工具，用于生成美观的目录树结构。采用面向对象架构设计具备智能输出策略、多线程并行扫描、自动提权等特性。
+# TreeVisual - 跨平台智能目录树工具
+
+一个现代化的命令行工具，用于生成美观的目录树结构。采用面向对象架构设计，具备智能输出策略、多线程并行扫描、自动提权等特性。
 
 ## 特性
 
