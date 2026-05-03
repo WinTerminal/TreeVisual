@@ -248,7 +248,7 @@ public:
         }
 
         unsigned int num_threads = (max_threads_ > 0) ? max_threads_
-            : std::max(1u, std::thread::hardware_concurrency());
+            : 4;
         num_threads = std::min(num_threads, static_cast<unsigned int>(subdirs.size()));
 
         std::vector<std::shared_ptr<Node>> sub_results(subdirs.size());
