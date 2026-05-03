@@ -247,9 +247,10 @@ public:
             return root_;
         }
 
-        unsigned int num_threads = (max_threads_ > 0) ? max_threads_
-            : 4;
-        num_threads = std::min(num_threads, static_cast<unsigned int>(subdirs.size()));
+        unsigned int num_threads = (max_threads_ > 0) ? max_threads_ : 4;
+        if (num_threads > static_cast<unsigned int>(subdirs.size())) {
+            num_threads = static_cast<unsigned int>(subdirs.size());
+        }
 
         std::vector<std::shared_ptr<Node>> sub_results(subdirs.size());
         std::atomic<size_t> next_idx(0);
