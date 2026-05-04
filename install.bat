@@ -12,7 +12,7 @@ set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
 echo =======================================
-echo   TreeVisual Installation Script v1.0.0
+echo   TreeVisual Installer v1.0.0
 echo =======================================
 echo.
 
@@ -23,10 +23,20 @@ if %errorlevel% equ 0 (
     set "BINARY_NAME=treeviz.exe"
 )
 
+::---------- Check Compiler ----------
+where g++ >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] g++ not found. Please install MinGW-w64 or MSYS2.
+    echo Download: https://www.msys2.org/
+    pause
+    exit /b 1
+)
+
 ::---------- Download Source ----------
+if not exist "src" mkdir src 2>nul
 if not exist "src\tree.cpp" (
     echo [INFO] Downloading source code...
-    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/tree.cpp' -OutFile 'src\tree.cpp'"
+    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/tree.cpp' -OutFile 'src\tree.cpp'" 2>nul
     if exist "src\tree.cpp" (
         echo [OK] Download complete
     ) else (
