@@ -1,59 +1,92 @@
 @echo off
-setlocal enabledelayedexpansion
-title TreeVisual 安装程序
+setlocal EnableDelayedExpansion
 
-echo ================================
-echo   TreeVisual 安装脚本 (Windows)
-echo ================================
+title TreeVisual Installer v1.0.0
 
-echo 正在编译 TreeVisual...
+::=============================================
+:: TreeVisual Installation Script (Windows)
+::=============================================
+
+set "BINARY_NAME=tree.exe"
+set "SCRIPT_DIR=%~dp0"
+set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+
+echo =======================================
+echo   TreeVisual Installation Script v1.0.0
+echo =======================================
+echo.
+
+::---------- Detect System tree ----------
+where tree >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [WARNING] System has tree command, renaming to treeviz.exe
+    set "BINARY_NAME=treeviz.exe"
+)
+
+::---------- Download Source ----------
+if not exist "src\tree.cpp" (
+    echo [INFO] Downloading source code...
+    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/tree.cpp' -OutFile 'src\tree.cpp'"
+    if exist "src\tree.cpp" (
+        echo [OK] Download complete
+    ) else (
+        echo [ERROR] Download failed
+    )
+)
+
+::---------- Compile ----------
+echo [INFO] Compiling TreeVisual...
+
 if exist "CMakeLists.txt" (
-if not exist build mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
-cd ..
-copy build\Release\tree.exe .
+    echo [INFO] Using CMake
+    if not exist "build" mkdir build
+    cd build
+    cmake .. >nul 2>&1
+    cmake --build . --config Release >nul 2>&1
+    cd ..
+    copy "build\Release\tree.exe" "%BINARY_NAME%" >nul 2>&1
 ) else (
-g++ -std=c++17 -pthread -O2 src/tree.cpp -o tree.exe -static -lshlwapi -lole32 -lshell32
+    echo [INFO] Using g++
+    g++ -std=c++17 -pthread -O2 src/tree.cpp -o "%BINARY_NAME%" -static -lshlwapi -lole32 -lshell32
 )
-if not exist tree.exe (
-echo 编译失败，请检查编译器是否安装。
-pause
-exit /b 1
+
+if not exist "%BINARY_NAME%" (
+    echo [ERROR] Build failed
+    pause
+    exit /b 1
 )
-echo 编译成功。
 
-set "BIN_PATH=%CD%"
-echo 当前目录: %BIN_PATH%
+echo [OK] Build complete: .\%BINARY_NAME%
+echo.
 
-echo %PATH% | findstr /I /C:"%BIN_PATH%" >nul
+::---------- Configure PATH ----------
+echo %PATH% | findstr /I /C:"%SCRIPT_DIR%" >nul
 if %errorlevel% equ 0 (
-echo 当前目录已在 PATH 中，无需配置。
-) else (
-echo 当前目录不在 PATH 中。
-set /p "add_path=是否自动添加到系统 PATH？(y/n): "
-if /i "!add_path!"=="y" (
-echo 正在请求管理员权限...
-powershell -Command "Start-Process '%~f0' -Verb RunAs -ArgumentList '/addpath'"
-exit /b
-) else (
-echo 跳过 PATH 配置，您可以将 %BIN_PATH% 手动添加到 PATH。
-)
+    echo [OK] Directory already in PATH
+    goto :complete
 )
 
-echo 安装完成！请重新打开命令提示符，即可使用 'tree' 命令。
-pause
-goto :eof
+echo [INFO] Add to system PATH? (y/n)
+set /p "add_path="
+if /i not "!add_path!"=="y" (
+    echo [INFO] Skipped PATH configuration
+    echo You can manually add: %SCRIPT_DIR%
+    goto :complete
+)
 
-:addpath
-set "BIN_PATH=%~dp0"
-set "BIN_PATH=%BIN_PATH:~0,-1%"
-echo 正在添加 %BIN_PATH% 到系统 PATH...
-setx /M PATH "%BIN_PATH%;%PATH%" >nul
+echo [INFO] Requesting administrator privileges...
+powershell -Command "Start-Process cmd -Verb RunAs -ArgumentList '/c setx PATH \"%SCRIPT_DIR%;%PATH%\" /M' -Wait"
 if %errorlevel% equ 0 (
-echo 添加成功！请重新打开命令提示符。
+    echo [OK] Added to system PATH
+    echo Please restart your command prompt
 ) else (
-echo 添加失败，请手动添加。
+    echo [ERROR] Failed to add to PATH
 )
+
+:complete
+echo.
+echo =======================================
+echo   Installation complete!
+echo   Use: .\%BINARY_NAME%
+echo =======================================
 pause
