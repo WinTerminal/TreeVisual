@@ -26,8 +26,8 @@ if %errorlevel% equ 0 (
 ::---------- Check Compiler ----------
 where g++ >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] g++ not found. Please install MinGW-w64 or MSYS2.
-    echo Download: https://www.msys2.org/
+    echo [ERROR] No compiler found.
+    echo Please use portable version: https://github.com/WinTerminal/TreeVisual/releases
     pause
     exit /b 1
 )
