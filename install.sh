@@ -251,7 +251,7 @@ configure_path() {
     fi
     echo "export PATH=\"$BIN_PATH:\$PATH\"" >> "$config_file"
     msg path_added "$config_file"
-    source "$config_file"
+    echo "Run: source $config_file"
 }
 
 #---------- Main ----------
