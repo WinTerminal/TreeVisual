@@ -133,6 +133,12 @@ tree ~
 
 # 顯示隱藏檔案
 tree --hidden
+
+# TUI 模式
+tree -v
+
+# 設定介面
+tree --setting
 ```
 
 ## 技術棧

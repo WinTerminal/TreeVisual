@@ -128,11 +128,14 @@ tree
 # Show specified directory
 tree /path/to/directory
 
-# Scan user home directory
-tree ~
-
 # Show hidden files
 tree --hidden
+
+# TUI mode
+tree -v
+
+# Settings
+tree --setting
 ```
 
 ## Tech Stack
