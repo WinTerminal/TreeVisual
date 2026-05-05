@@ -567,6 +567,16 @@ public:
             result += line + "\n";
         return result;
     }
+    
+    static std::vector<std::string> formatLines(const std::shared_ptr<Node>& root, int limit = 0) {
+        std::vector<std::string> lines;
+        formatNode(root, "", true, lines);
+        if (limit > 0 && lines.size() > limit) {
+            lines.resize(limit);
+            lines.push_back("... (" + std::to_string(limit) + " lines)");
+        }
+        return lines;
+    }
 
 private:
     static void formatNode(const std::shared_ptr<Node>& node, const std::string& prefix,
@@ -605,18 +615,107 @@ public:
     }
 
     void runTUI(bool settings_mode = false) {
-        std::cout << "=======================================\n";
-        std::cout << "         TreeVisual TUI\n";
-        std::cout << "=======================================\n";
         if (settings_mode) {
-            std::cout << "\n[Settings]\n";
-            std::cout << "1. Theme\n";
-            std::cout << "2. Output Mode\n";
-            std::cout << "3. Back\n";
-            std::cout << "\nSelect: ";
-        } else {
-            std::cout << "\n[Interactive Mode]\n";
-            std::cout << "Press Enter to continue...\n";
+            showSettings();
+            return;
+        }
+        
+        fs::path current = fs::current_path();
+        
+        while (true) {
+            std::cout << "\033[2J\033[H";
+            std::cout << "=======================================\n";
+            std::cout << "         TreeVisual TUI v1.0.1\n";
+            std::cout << "=======================================\n";
+            std::cout << "Current: " << current.string() << "\n\n";
+            
+            std::error_code ec;
+            auto entries = listDirectorySimple(current);
+            if (entries.empty()) {
+                std::cout << "[Empty]\n";
+            } else {
+                int idx = 1;
+                for (const auto& entry : entries) {
+                    auto st = entry.status();
+                    std::cout << "  " << idx << ". " << entry.path().filename().string();
+                    if (fs::is_directory(st)) std::cout << "/";
+                    std::cout << "\n";
+                    idx++;
+                }
+            }
+            
+            std::cout << "\n[↑]Up [Enter]View [n]New [s]Settings [q]Quit\n";
+            std::cout << "Choice: ";
+            
+            std::string input;
+            std::getline(std::cin, input);
+            
+            if (input == "q" || input == "Q") break;
+            else if (input == "..") {
+                current = current.parent_path();
+            } else if (input == "n") {
+                std::cout << "Enter path: ";
+                std::getline(std::cin, input);
+                if (!input.empty()) {
+                    fs::path newpath(input);
+                    if (fs::exists(newpath)) current = newpath;
+                }
+            } else if (input == "s" || input == "S") {
+                showSettings();
+            } else if (input.empty() || input == ".") {
+                auto tree = std::make_unique<ParallelDirectoryTree>();
+                auto root = tree->build(current, false);
+                auto lines = TreeFormatter::formatLines(root, 30);
+                std::cout << "\n";
+                for (auto& line : lines) std::cout << line << "\n";
+                std::cout << "\n[Press Enter to continue]\n";
+                std::getline(std::cin, input);
+            }
+        }
+    }
+    
+    std::vector<fs::directory_entry> listDirectorySimple(const fs::path& dir) {
+        std::vector<fs::directory_entry> entries;
+        std::error_code ec;
+        for (auto& entry : fs::directory_iterator(dir, ec)) {
+            if (ec) break;
+            entries.push_back(entry);
+        }
+        return entries;
+    }
+    
+    void showSettings() {
+        std::string theme = "Default";
+        std::string outputMode = "Auto";
+        int maxLines = 100;
+        
+        while (true) {
+            std::cout << "\033[2J\033[H";
+            std::cout << "=======================================\n";
+            std::cout << "         Settings\n";
+            std::cout << "=======================================\n";
+            std::cout << "1. Theme: " << theme << "\n";
+            std::cout << "2. Output Mode: " << outputMode << "\n";
+            std::cout << "3. Max Lines: " << maxLines << "\n";
+            std::cout << "4. Back\n";
+            std::cout << "\nSelect (1-4): ";
+            
+            std::string input;
+            std::getline(std::cin, input);
+            
+            if (input == "1") {
+                std::cout << "Theme (Default/Dark): ";
+                std::getline(std::cin, theme);
+            } else if (input == "2") {
+                std::cout << "Output Mode (Auto/Clipboard/File): ";
+                std::getline(std::cin, outputMode);
+            } else if (input == "3") {
+                std::cout << "Max Lines: ";
+                std::getline(std::cin, input);
+                try { maxLines = std::stoi(input); } catch (...) {}
+            } else if (input == "4" || input == "q") {
+                break;
+            }
         }
     }
 
