@@ -597,16 +597,34 @@ private:
 class App {
 public:
     App() {
-#ifdef _WIN32
+    #ifdef _WIN32
         platform_ = std::make_unique<WindowsPlatformHelper>();
-#else
+    #else
         platform_ = std::make_unique<UnixPlatformHelper>();
-#endif
+    #endif
+    }
+
+    void runTUI(bool settings_mode = false) {
+        std::cout << "=======================================\n";
+        std::cout << "         TreeVisual TUI\n";
+        std::cout << "=======================================\n";
+        if (settings_mode) {
+            std::cout << "\n[Settings]\n";
+            std::cout << "1. Theme\n";
+            std::cout << "2. Output Mode\n";
+            std::cout << "3. Back\n";
+            std::cout << "\nSelect: ";
+        } else {
+            std::cout << "\n[Interactive Mode]\n";
+            std::cout << "Press Enter to continue...\n";
+        }
     }
 
     int run(int argc, char* argv[]) {
         bool elevated = false;
         bool show_hidden = false;
+        bool tui_mode = false;
+        bool settings_mode = false;
         std::vector<std::string> userArgs;
 
         for (int i = 1; i < argc; ++i) {
@@ -614,8 +632,17 @@ public:
                 elevated = true;
             else if (strcmp(argv[i], "--hidden") == 0)
                 show_hidden = true;
+            else if (strcmp(argv[i], "-v") == 0)
+                tui_mode = true;
+            else if (strcmp(argv[i], "--setting") == 0)
+                settings_mode = true;
             else
                 userArgs.push_back(argv[i]);
+        }
+
+        if (tui_mode || settings_mode) {
+            runTUI(settings_mode);
+            return 0;
         }
 
         fs::path target;
