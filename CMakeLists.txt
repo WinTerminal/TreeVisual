@@ -1,20 +1,28 @@
 cmake_minimum_required(VERSION 3.10)
-project(TreeVisual VERSION 1.0.0 LANGUAGES CXX)
+project(TreeVisual VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ===== Source =====
 add_executable(tree src/tree.cpp)
 
-# 所有 Unix 类系统（Linux, macOS, 其他 BSD）都链接线程库
+# ===== Static resource path (compile-time fallback) =====
+get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}" ABSOLUTE)
+set(WEB_ROOT_PATH "${PROJECT_ROOT}/src/web")
+target_compile_definitions(tree PRIVATE WEB_ROOT_PATH="${WEB_ROOT_PATH}")
+
+# ===== Unix threading =====
 if(UNIX)
     find_package(Threads REQUIRED)
     target_link_libraries(tree Threads::Threads)
 endif()
 
-# Windows 特有链接库
+# ===== Windows libraries =====
 if(WIN32)
-    target_link_libraries(tree shlwapi ole32 shell32)
+    target_link_libraries(tree ws2_32 shlwapi ole32 shell32)
 endif()
 
+# ===== Installation =====
 install(TARGETS tree DESTINATION bin)
+install(DIRECTORY src/web/ DESTINATION share/treevisual/web)

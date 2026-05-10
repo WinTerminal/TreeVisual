@@ -2,24 +2,17 @@
 setlocal EnableDelayedExpansion
 
 :: =============================================
-:: TreeVisual Standalone Installer Script
-:: Distributed via GitHub Releases (not part of repo clone)
-:: Usage: Download this .bat file and run it
-:: It auto-downloads tree.cpp from GitHub and compiles it
+:: TreeVisual Installation Script (Windows)
 :: =============================================
 
-title TreeVisual Installer v1.0.0
-
-::=============================================
-:: TreeVisual Installation Script (Windows)
-::=============================================
+title TreeVisual Installer v1.1.0
 
 set "BINARY_NAME=tree.exe"
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
 echo =======================================
-echo   TreeVisual Installer v1.0.0
+echo   TreeVisual Installer v1.1.0
 echo =======================================
 echo.
 
@@ -74,6 +67,20 @@ if not exist "%BINARY_NAME%" (
 )
 
 echo [OK] Build complete: .\%BINARY_NAME%
+
+::---------- Copy WebUI Assets ----------
+if exist "src\web" (
+    if not exist "share\treevisual\web" mkdir share\treevisual\web >nul 2>&1
+    xcopy /E /Y /Q "src\web\*" "share\treevisual\web\" >nul 2>&1
+    if errorlevel 1 (
+        echo [WARN] Failed to copy WebUI assets
+    ) else (
+        echo [OK] WebUI assets copied to share\treevisual\web\
+    )
+) else (
+    echo [INFO] No src\web directory found, skipping WebUI assets
+)
+
 echo.
 
 ::---------- Configure PATH ----------

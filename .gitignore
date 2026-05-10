@@ -1,32 +1,26 @@
-
-编译产物
-
+# 编译产物
 build/
 tree
 tree.exe
 *.o
 *.obj
 
-IDE
-
+# IDE
 .vscode/
 .idea/
 *.swp
 
-系统文件
-
+# 系统文件
 .DS_Store
 Thumbs.db
 
-CMake 缓存
-
+# CMake 缓存
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
 
-便携版本
-
+# 便携版本
 TreeViz/
 *.tar.gz
 *.zip

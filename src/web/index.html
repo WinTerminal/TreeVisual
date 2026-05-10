@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TreeVisual WebUI</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- WebGL Warning Banner -->
+<div class="webgl-warning" id="webglWarning" data-i18n="webglWarning"></div>
+
+<!-- WebGL Container (hidden by default) -->
+<div id="webglContainer">
+  <canvas id="webglCanvas"></canvas>
+  <div id="webglTooltip"></div>
+</div>
+
+<!-- Main UI -->
+<div class="header">
+  <h1 data-i18n="title">TreeVisual</h1>
+  <span>v1.1.0</span>
+  <input type="text" id="pathInput" data-i18n-placeholder="pathPlaceholder" placeholder="Enter directory path...">
+  <button onclick="scanDirectory()" data-i18n="scan">Scan</button>
+</div>
+<div class="toolbar">
+  <button onclick="goUp()" data-i18n="up">Up</button>
+  <button onclick="goHome()" data-i18n="home">Home</button>
+  <button onclick="refresh()" data-i18n="refresh">Refresh</button>
+  
+  <!-- Language Switch -->
+  <span class="lang-switch">
+    <select id="langSelect" title="Language">
+      <option value="en">EN</option>
+      <option value="zh">中文</option>
+    </select>
+  </span>
+  
+  <!-- Settings -->
+  <div class="settings-btn">
+    <button onclick="toggleSettings()">&#9881; <span data-i18n="settings">Settings</span></button>
+    <div class="settings-panel" id="settingsPanel">
+      <h3 data-i18n="settings">Settings</h3>
+      <div class="setting-item">
+        <label for="showHidden" data-i18n="showHidden">Show hidden files</label>
+        <input type="checkbox" id="showHidden">
+      </div>
+      <div class="setting-item">
+        <label for="enableWebGL">
+          <span data-i18n="webglToggle">Enable WebGL Rendering</span>
+          <span class="beta-badge">Beta</span>
+        </label>
+        <input type="checkbox" id="enableWebGL">
+      </div>
+    </div>
+  </div>
+  <span id="status"></span>
+</div>
+<div class="content" id="treeContainer">
+  <div class="loading" data-i18n="loadingInit">Enter a path and click Scan to visualize a directory tree.</div>
+</div>
+
+<script src="/i18n.js"></script>
+<script src="/app.js"></script>
+<script src="/webgl.js"></script>
+</body>
+</html>

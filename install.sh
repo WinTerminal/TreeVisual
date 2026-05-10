@@ -9,7 +9,7 @@
 set -e
 
 #---------- Configuration ----------
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 BINARY_NAME="tree"
 
 #---------- Color Output ----------
@@ -21,14 +21,14 @@ NC='\033[0m'
 
 #---------- Detect Language ----------
 if [[ "$LANG" =~ ^zh_CN ]]; then
-    LANG="cn"
+    SCRIPT_LANG="cn"
 else
-    LANG="en"
+    SCRIPT_LANG="en"
 fi
 
 #---------- Messages ----------
 msg() {
-    case "$LANG" in
+    case "$SCRIPT_LANG" in
         cn)
             case "$1" in
                 init) echo -e "${BLUE}TreeVisual 安装脚本 v${SCRIPT_VERSION}${NC}" ;;
@@ -212,6 +212,13 @@ compile() {
     else
         msg build_failed
         exit 1
+    fi
+
+    # Copy web assets (for WebUI mode)
+    if [[ -d "src/web" ]]; then
+        mkdir -p "share/treevisual/web"
+        cp -r src/web/* share/treevisual/web/
+        echo "${GREEN}[WebUI]${NC} Assets copied to share/treevisual/web/"
     fi
 }
 

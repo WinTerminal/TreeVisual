@@ -1,15 +1,17 @@
 [![C++17](https://img.shields.io/badge/C++-17-blue?style=flat&logo=c%2B%2B)](https://en.cppreference.com/w/)
 [![MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat)](https://github.com/WinTerminal/TreeVisual)
+[![Version](https://img.shields.io/badge/version-v1.1.0-7aa2f7?style=flat)]()
 
 [English](./README.md) | [简体中文](./README-zh.md) | [繁體中文](./README-tc.md)
 
-# TreeVisual - Cross-platform Intelligent Directory Tree Tool
+# TreeVisual - Cross-platform Directory Tree Visualizer
 
-A modern command-line tool for generating beautiful directory tree structures. Built with object-oriented architecture, featuring intelligent output strategies, multi-threaded parallel scanning, and automatic privilege elevation.
+A modern directory tree tool with **TUI mode** and **WebUI** (lazy-loading tree browser). Built in C++17, zero third-party dependencies.
 
 ## Features
 
+### CLI / TUI Mode
 - **Beautiful tree output** - Unicode branch characters, clear hierarchy
 - **Intelligent output strategies**:
   - ≤50 lines: display in terminal + copy to clipboard
@@ -18,7 +20,14 @@ A modern command-line tool for generating beautiful directory tree structures. B
 - **Multi-threaded acceleration** - Parallel traversal of same-level subdirectories, 2-5x speedup for large directories
 - **Auto privilege elevation** - When permission denied, prompt to re-run as admin/root
 - **Safe symlink handling** - Prevent crashes from circular links
-- **Cross-platform** - Works consistently on Linux, macOS, Windows
+
+### WebUI Mode (`--web`) — *New in v1.1.0*
+- **Lazy-loading tree** - Single-layer API, expand directories on demand (no more lag on large dirs!)
+- **Separated frontend files** - `src/web/index.html`, `styles.css`, `app.js` for easy customization
+- **Multi-language support** - Chinese / English toggle, auto-detects browser language
+- **WebGL rendering (Beta)** - Force-directed graph visualization with drag/zoom
+- **Settings panel** - Show hidden files, enable WebGL rendering
+- **Optimized CSS** - Tokyo Night theme, responsive design, smooth transitions
 
 ## Architecture Design
 
@@ -131,12 +140,32 @@ tree /path/to/directory
 # Show hidden files
 tree --hidden
 
-# TUI mode
+# TUI mode (interactive)
 tree -v
 
 # Settings
 tree --setting
+
+# WebUI mode (opens http://127.0.0.1:7200/)
+tree --web
 ```
+
+### WebUI API Endpoints
+
+| Endpoint | Params | Description |
+|----------|--------|-------------|
+| `GET /api/tree` | `path`, `show_hidden` | Single-level tree JSON with lazy-loading support |
+| `GET /api/list` | `path`, `show_hidden` | Flat directory listing |
+
+### WebUI Frontend Files (`src/web/`)
+
+| File | Description |
+|------|-------------|
+| `index.html` | Page skeleton, i18n attributes, WebGL canvas |
+| `styles.css` | Tokyo Night theme, responsive layout, animations |
+| `app.js` | Tree rendering, lazy-load navigation, settings |
+| `i18n.js` | Chinese / English dictionary, language switching |
+| `webgl.js` | Force-directed graph renderer (**Beta**) |
 
 ## Tech Stack
 
@@ -144,6 +173,26 @@ tree --setting
 - **Standard Library**: `std::filesystem`, `std::thread`, `std::atomic`
 - **Clipboard**: Windows (Win32 API), macOS (pbcopy), Linux (xclip/xsel)
 - **Privilege Elevation**: Windows (runas), Unix (sudo)
+- **HTTP Server**: Raw BSD sockets, static file serving with MIME detection
+- **Frontend**: Vanilla HTML/CSS/JS, no frameworks
+- **WebGL** (Beta): WebGL 1.0, GLSL shaders for force-directed graph
+
+## Changelog
+
+### v1.1.0
+- WebUI lazy-loading: single-layer API, async directory expansion
+- Frontend file separation: extracted into `src/web/`
+- Multi-language support: Chinese / English
+- WebGL rendering (Beta): force-directed graph visualization
+- CSS overhaul: variables, responsive design, animations
+- Settings panel with hidden files toggle
+- Static file serving with fallback to embedded HTML
+
+### v1.0.2
+- Initial WebUI release
+
+### v1.0.1
+- First public release
 
 ## Contributing
 
