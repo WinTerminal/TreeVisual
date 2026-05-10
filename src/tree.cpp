@@ -1,3 +1,9 @@
+#define NOMINMAX
+
+#ifdef _WIN32
+    #define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include <iostream>
 #include <filesystem>
 #include <string>
