@@ -353,7 +353,7 @@ private:
         }
 
         for (const auto& entry : subdirs) {
-            auto sub = buildSubTree(entry.path(), show_hidden, policy, depth + 1);
+            auto sub = buildSubTree(entry.path(), show_hidden, policy);
             if (sub) node->addChild(sub);
         }
 
