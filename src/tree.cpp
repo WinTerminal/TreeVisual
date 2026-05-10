@@ -13,8 +13,6 @@
 #include <thread>
 #include <atomic>
 #include <stdexcept>
-#include <locale>
-#include <cstdint>
 #include <ctime>
 #include <memory>
 #include <functional>
@@ -34,6 +32,35 @@
 #endif
 
 namespace fs = std::filesystem;
+
+namespace {
+    fs::path getHomeDirImpl() {
+#ifdef _WIN32
+        wchar_t* buf = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &buf))) {
+            fs::path p(buf);
+            CoTaskMemFree(buf);
+            return p;
+        }
+        wchar_t* wprofile = _wgetenv(L"USERPROFILE");
+        if (wprofile && wprofile[0] != L'\0')
+            return fs::path(wprofile);
+        // 兼容旧系统：尝试 SHGetFolderPath
+        wchar_t path[MAX_PATH];
+        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROFILE, nullptr, 0, path)))
+            return fs::path(path);
+        throw std::runtime_error("Cannot determine user home directory");
+#else
+        const char* home = getenv("HOME");
+        if (home && home[0] != '\0')
+            return fs::path(home);
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0')
+            return fs::path(pw->pw_dir);
+        throw std::runtime_error("Cannot determine user home directory");
+#endif
+    }
+}
 
 constexpr size_t DISPLAY_LINE_THRESHOLD = 50;
 constexpr size_t CLIPBOARD_LINE_THRESHOLD = 100;
@@ -163,7 +190,7 @@ public:
     virtual std::shared_ptr<Node> build(const fs::path& root, bool show_hidden) {
         PermissionErrorTracker::instance().reset();
         root_path_ = root;
-        root_ = buildNode(root, show_hidden);
+        root_ = buildNode(root, show_hidden, 0);
         return root_;
     }
 
@@ -171,10 +198,16 @@ public:
     void setRootPath(const fs::path& path) { root_path_ = path; }
 
 protected:
+    static constexpr size_t MAX_DEPTH = 512;
+
     std::shared_ptr<Node> root_;
     fs::path root_path_;
 
-    virtual std::shared_ptr<Node> buildNode(const fs::path& path, bool show_hidden) {
+    virtual std::shared_ptr<Node> buildNode(const fs::path& path, bool show_hidden, size_t depth = 0) {
+        if (depth > MAX_DEPTH) {
+            std::cerr << "Warning: maximum recursion depth (" << MAX_DEPTH << ") exceeded, skipping " << path.string() << "\n";
+            return nullptr;
+        }
         std::string name = path.filename().string();
         if (name.empty()) name = path.string();
 
@@ -199,8 +232,8 @@ protected:
         }
 
         for (const auto& entry : subdirs) {
-            auto dir = buildNode(entry.path(), show_hidden);
-            node->addChild(dir);
+            auto dir = buildNode(entry.path(), show_hidden, depth + 1);
+            if (dir) node->addChild(dir);
         }
 
         return node;
@@ -247,7 +280,7 @@ public:
             return root_;
         }
 
-        unsigned int num_threads = (max_threads_ > 0) ? max_threads_ : 4;
+        unsigned int num_threads = (max_threads_ > 0) ? max_threads_ : std::max(1u, std::thread::hardware_concurrency());
         if (num_threads > static_cast<unsigned int>(subdirs.size())) {
             num_threads = static_cast<unsigned int>(subdirs.size());
         }
@@ -262,7 +295,7 @@ public:
                 while (true) {
                     size_t idx = next_idx.fetch_add(1);
                     if (idx >= subdirs.size()) break;
-                    sub_results[idx] = buildSubTree(subdirs[idx].path(), show_hidden, local_policy);
+                    sub_results[idx] = buildSubTree(subdirs[idx].path(), show_hidden, local_policy, 1);
                 }
             });
         }
@@ -283,7 +316,11 @@ public:
     }
 
 private:
-    std::shared_ptr<Node> buildSubTree(const fs::path& path, bool show_hidden, DefaultTraversalPolicy& policy) {
+    std::shared_ptr<Node> buildSubTree(const fs::path& path, bool show_hidden, DefaultTraversalPolicy& policy, size_t depth = 0) {
+        if (depth > MAX_DEPTH) {
+            std::cerr << "Warning: maximum recursion depth (" << MAX_DEPTH << ") exceeded, skipping " << path.string() << "\n";
+            return nullptr;
+        }
         std::string name = path.filename().string();
         if (name.empty()) name = path.string();
 
@@ -308,8 +345,8 @@ private:
         }
 
         for (const auto& entry : subdirs) {
-            auto sub = buildSubTree(entry.path(), show_hidden, policy);
-            node->addChild(sub);
+            auto sub = buildSubTree(entry.path(), show_hidden, policy, depth + 1);
+            if (sub) node->addChild(sub);
         }
 
         return node;
@@ -389,26 +426,7 @@ public:
 
 private:
     fs::path getHomeDir() {
-#ifdef _WIN32
-        wchar_t* buf = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &buf))) {
-            fs::path p(buf);
-            CoTaskMemFree(buf);
-            return p;
-        }
-        wchar_t* wprofile = _wgetenv(L"USERPROFILE");
-        if (wprofile && wprofile[0] != L'\0')
-            return fs::path(wprofile);
-        throw std::runtime_error("Cannot determine user home directory");
-#else
-        const char* home = getenv("HOME");
-        if (home && home[0] != '\0')
-            return fs::path(home);
-        struct passwd* pw = getpwuid(getuid());
-        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0')
-            return fs::path(pw->pw_dir);
-        throw std::runtime_error("Cannot determine user home directory");
-#endif
+        return getHomeDirImpl();
     }
 
     fs::path saveToFile(const std::string& content) {
@@ -424,7 +442,7 @@ private:
         localtime_r(&tt, &tm);
 #endif
         std::ostringstream oss;
-        oss << std::put_time(&tm, "%y-%m-%d-%H-%M-%S") << "-tree.txt";
+        oss << std::put_time(&tm, "%Y-%m-%d-%H-%M-%S") << "-tree.txt";
         fs::path filePath = saveDir / oss.str();
         std::ofstream ofs(filePath, std::ios::binary);
         if (!ofs)
@@ -463,16 +481,7 @@ public:
 class WindowsPlatformHelper : public IPlatformHelper {
 public:
     fs::path getHomeDir() override {
-        wchar_t* buf = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &buf))) {
-            fs::path p(buf);
-            CoTaskMemFree(buf);
-            return p;
-        }
-        wchar_t* wprofile = _wgetenv(L"USERPROFILE");
-        if (wprofile && wprofile[0] != L'\0')
-            return fs::path(wprofile);
-        throw std::runtime_error("Cannot determine user home directory");
+        return getHomeDirImpl();
     }
 
     bool isAdmin() override {
@@ -508,7 +517,13 @@ public:
             int size = MultiByteToWideChar(CP_UTF8, 0, a.c_str(), -1, nullptr, 0);
             std::wstring wArg(size - 1, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, a.c_str(), -1, &wArg[0], size);
-            cmdLine += L"\"" + wArg + L"\"";
+            std::wstring escaped;
+            for (wchar_t c : wArg) {
+                if (c == L'\\') escaped += L"\\\\";
+                else if (c == L'"') escaped += L"\\\"";
+                else escaped += c;
+            }
+            cmdLine += L"\"" + escaped + L"\"";
         }
         HINSTANCE result = ShellExecuteW(nullptr, L"runas", exePath, cmdLine.c_str(), nullptr, SW_NORMAL);
         return reinterpret_cast<intptr_t>(result) > 32;
@@ -520,13 +535,7 @@ public:
 class UnixPlatformHelper : public IPlatformHelper {
 public:
     fs::path getHomeDir() override {
-        const char* home = getenv("HOME");
-        if (home && home[0] != '\0')
-            return fs::path(home);
-        struct passwd* pw = getpwuid(getuid());
-        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0')
-            return fs::path(pw->pw_dir);
-        throw std::runtime_error("Cannot determine user home directory");
+        return getHomeDirImpl();
     }
 
     bool isAdmin() override {
@@ -543,7 +552,9 @@ public:
 | $$  | $$|  $$$$$$/   | $$  |  $$$$$$/      |  $$$$$$/|  $$$$$$/| $$$$$$$/|  $$$$$$/
 |__/  |__/ \______/    |__/   \______/        \______/  \______/ |_______/  \______/ 
 )" << std::endl;
-        std::string exePath = fs::canonical("/proc/self/exe").string();
+        std::string exePath;
+        try { exePath = fs::canonical("/proc/self/exe").string(); }
+        catch (...) { return false; }
         std::vector<const char*> argv;
         argv.push_back("sudo");
         argv.push_back(exePath.c_str());
@@ -615,6 +626,12 @@ public:
     }
 
     void runTUI(bool settings_mode = false) {
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        if (GetConsoleMode(hConsole, &mode))
+            SetConsoleMode(hConsole, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
         if (settings_mode) {
             showSettings();
             return;

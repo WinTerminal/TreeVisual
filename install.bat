@@ -1,6 +1,13 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+:: =============================================
+:: TreeVisual Standalone Installer Script
+:: Distributed via GitHub Releases (not part of repo clone)
+:: Usage: Download this .bat file and run it
+:: It auto-downloads tree.cpp from GitHub and compiles it
+:: =============================================
+
 title TreeVisual Installer v1.0.0
 
 ::=============================================
@@ -36,7 +43,7 @@ if %errorlevel% neq 0 (
 if not exist "src" mkdir src 2>nul
 if not exist "src\tree.cpp" (
     echo [INFO] Downloading source code...
-    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/tree.cpp' -OutFile 'src\tree.cpp'" 2>nul
+    powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/tree.cpp' -OutFile 'src\tree.cpp'"
     if exist "src\tree.cpp" (
         echo [OK] Download complete
     ) else (
@@ -51,10 +58,10 @@ if exist "CMakeLists.txt" (
     echo [INFO] Using CMake
     if not exist "build" mkdir build
     cd build
-    cmake .. >nul 2>&1
-    cmake --build . --config Release >nul 2>&1
+    cmake .. 2>&1
+    cmake --build . --config Release 2>&1
     cd ..
-    copy "build\Release\tree.exe" "%BINARY_NAME%" >nul 2>&1
+    copy "build\Release\tree.exe" "%BINARY_NAME%" 2>&1
 ) else (
     echo [INFO] Using g++
     g++ -std=c++17 -pthread -O2 src/tree.cpp -o "%BINARY_NAME%" -static -lshlwapi -lole32 -lshell32
