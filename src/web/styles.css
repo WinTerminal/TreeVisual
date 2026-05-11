@@ -136,6 +136,19 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
   vertical-align:middle
 }
 
+/* Service Toggle Button State */
+#serviceToggleBtn.running {
+  background: var(--accent-red) !important;
+}
+  color:var(--bg-dark);
+  font-size:10px;
+  font-weight:bold;
+  padding:1px 5px;
+  border-radius:3px;
+  margin-left:6px;
+  vertical-align:middle
+}
+
 /* Language Switch */
 .lang-switch {
   position:relative;

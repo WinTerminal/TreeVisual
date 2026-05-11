@@ -220,14 +220,118 @@ function getPrefixOfLine(lineEl) {
   return prefix;
 }
 
+// ===== Settings Persistence =====
+var _settingsSaveTimer = null;
+
+function saveSettings() {
+  var settings = {
+    showHidden: document.getElementById("showHidden").checked,
+    enableWebGL: document.getElementById("enableWebGL") ? document.getElementById("enableWebGL").checked : false,
+    language: typeof getLang === "function" ? getLang() : "en"
+  };
+  clearTimeout(_settingsSaveTimer);
+  _settingsSaveTimer = setTimeout(function() {
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings)
+    }).catch(function(e) { console.warn("[Settings] Save failed:", e); });
+  }, 300);
+}
+
+function loadSettings() {
+  fetch("/api/settings")
+    .then(function(r) { return r.json(); })
+    .then(function(s) {
+      if (!s || !s.showHidden && !s.enableWebGL && !s.language) return;
+      if (s.showHidden !== undefined)
+        document.getElementById("showHidden").checked = s.showHidden;
+      if (s.enableWebGL !== undefined) {
+        var wgl = document.getElementById("enableWebGL");
+        if (wgl) wgl.checked = s.enableWebGL;
+      }
+      if (s.language !== undefined && s.language && typeof setLang === "function")
+        setLang(s.language);
+      // Apply loaded WebGL state to actual renderer
+      applyLoadedSettings();
+    })
+    .catch(function() {});
+}
+
+// Apply settings that were just loaded (e.g. WebGL checkbox was checked)
+function applyLoadedSettings() {
+  var wgl = document.getElementById("enableWebGL");
+  if (wgl && wgl.checked && window.WebGLRenderer) {
+    if (!window.WebGLRenderer.init()) {
+      wgl.checked = false;
+    } else {
+      window.WebGLRenderer.enable(navigateTo);
+      container.style.display = 'none';
+    }
+  } else if (wgl && !wgl.checked && window.WebGLRenderer && window._webglEnabled) {
+    window.WebGLRenderer.disable();
+    container.style.display = '';
+  }
+}
+
+// ===== Service Status UI =====
+var _serviceRunning = false;
+
+function checkServiceStatus() {
+  fetch("/api/service/status")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      _serviceRunning = data.running;
+      var label = document.getElementById("serviceStatusLabel");
+      var btn = document.getElementById("serviceToggleBtn");
+      if (!label || !btn) return;
+      if (data.running) {
+        label.textContent = "Running";
+        label.style.color = "#9ece6a";
+        btn.textContent = "Stop";
+        btn.style.background = "#f7768e";
+      } else {
+        label.textContent = "Off";
+        label.style.color = "#565f89";
+        btn.textContent = "Start";
+        btn.style.background = "#7aa2f7";
+      }
+    })
+    .catch(function() {});
+}
+
+function toggleService() {
+  var action = _serviceRunning ? "stop" : "start";
+  fetch("/api/service/" + action, { method: "POST" })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) checkServiceStatus();
+    })
+    .catch(function() {});
+}
+
+// Poll service status every 10 seconds
+setInterval(checkServiceStatus, 10000);
+
 // ===== Initialize i18n on page load =====
 if (typeof applyI18n === 'function') {
   applyI18n();
 
+  // Load saved settings first, then apply i18n (which may override language)
+  loadSettings();
+
   // Language switch handler
   document.getElementById('langSelect').addEventListener('change', function() {
     setLang(this.value);
+    saveSettings();
   });
+
+  // Bind saveSettings to checkbox changes
+  var showHiddenCb = document.getElementById("showHidden");
+  if (showHiddenCb) showHiddenCb.addEventListener("change", saveSettings);
+
+  var wglCb = document.getElementById("enableWebGL");
+  if (wglCb) wglCb.addEventListener("change", saveSettings);
 }
 
 // ===== WebGL Mode Toggle =====

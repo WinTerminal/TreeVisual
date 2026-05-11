@@ -24,6 +24,10 @@
 #include <functional>
 #include <map>
 #include <climits>
+#ifndef _WIN32
+#include <sys/types.h>
+#include <signal.h>
+#endif
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -743,6 +747,135 @@ static std::string dirListToJson(const fs::path& dir, bool show_hidden) {
     return json;
 }
 
+// ==================== ServiceManager ====================
+// Daemon process management and settings persistence
+
+// Forward declaration
+class WebServer;
+
+class ServiceManager {
+public:
+    static std::string configDir() {
+        std::string dir;
+#ifdef _WIN32
+        char* appdata = getenv("LOCALAPPDATA");
+        dir = appdata ? std::string(appdata) + "\\TreeVisual" : ".\\TreeVisual";
+#else
+        char* home = getenv("HOME");
+        dir = home ? std::string(home) + "/.config/treevisual" : "/tmp/.treevisual";
+#endif
+        return dir;
+    }
+
+    static std::string pidFilePath() { return configDir() + "/tree.pid"; }
+    static std::string settingsFilePath() { return configDir() + "/settings.json"; }
+
+    // Check if service is currently running (PID file exists + process alive)
+    static bool isRunning() {
+        auto pid = readPid();
+        if (pid <= 0) return false;
+#ifdef _WIN32
+        HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, (DWORD)pid);
+        if (h) { CloseHandle(h); return true; }
+        return false;
+#else
+        return (kill((pid_t)pid, 0) == 0);
+#endif
+    }
+
+    // Start daemon: fork into background, write PID, start WebServer
+    static bool start(int port = 7200);
+
+    // Stop daemon: kill process by PID, clean up
+    static bool stop() {
+        auto pid = readPid();
+        if (pid <= 0) {
+            std::cout << "[Service] No running instance found\n";
+            return false;
+        }
+        std::cout << "[Service] Stopping PID " << pid << "...";
+#ifdef _WIN32
+        HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+        if (h) { TerminateProcess(h, 0); CloseHandle(h); }
+#else
+        kill((pid_t)pid, SIGTERM);
+        // Wait up to 5 seconds for graceful shutdown
+        for (int i = 0; i < 50; ++i) {
+            if (kill((pid_t)pid, 0) != 0) break;
+            usleep(100000);
+        }
+        // Force kill if still alive
+        if (kill((pid_t)pid, 0) == 0)
+            kill((pid_t)pid, SIGKILL);
+#endif
+        removePid();
+        std::cout << " stopped.\n";
+        return true;
+    }
+
+    // Restart: stop then start
+    static bool restart(int port = 7200) {
+        stop();
+#ifdef _WIN32
+        Sleep(500);
+#else
+        usleep(500000);
+#endif
+        return start(port);
+    }
+
+    // Settings persistence: load from JSON file
+    static std::string loadSettings() {
+        std::string path = settingsFilePath();
+        std::ifstream ifs(path);
+        if (!ifs.is_open()) return "{}";
+        std::string content((std::istreambuf_iterator<char>(ifs)),
+                          std::istreambuf_iterator<char>());
+        ifs.close();
+        if (content.empty()) return "{}";
+        return content;
+    }
+
+    // Settings persistence: save to JSON file
+    static bool saveSettings(const std::string& json) {
+        fs::create_directories(configDir());
+        std::string path = settingsFilePath();
+        std::ofstream ofs(path);
+        if (!ofs.is_open()) return false;
+        ofs << json;
+        ofs.close();
+        return true;
+    }
+
+private:
+    static pid_t readPid() {
+        std::ifstream ifs(pidFilePath());
+        if (!ifs.is_open()) return -1;
+        pid_t pid;
+        ifs >> pid;
+        ifs.close();
+        return pid;
+    }
+
+    static void writePid(pid_t pid) {
+        std::ofstream ofs(pidFilePath());
+        ofs << pid << "\n";
+        ofs.close();
+    }
+
+    static void removePid() {
+        std::remove(pidFilePath().c_str());
+    }
+
+#ifdef _WIN32
+    static std::string getExecutablePath() {
+        char buf[MAX_PATH];
+        DWORD len = GetModuleFileNameA(NULL, buf, sizeof(buf));
+        return len > 0 ? std::string(buf, len) : "tree.exe";
+    }
+#endif
+};
+
 // ==================== WebServer ====================
 
 class WebServer {
@@ -919,6 +1052,14 @@ private:
             serveStaticOrFallback(client_fd, "i18n.js", "application/javascript; charset=utf-8");
         } else if (path == "/webgl.js") {
             serveStaticOrFallback(client_fd, "webgl.js", "application/javascript; charset=utf-8");
+        } else if (path == "/api/settings") {
+            handleApiSettings(client_fd, method, req);  // Allow GET + POST
+        } else if (path == "/api/service/status") {
+            handleApiServiceStatus(client_fd);
+        } else if (path == "/api/service/start") {
+            handleApiServiceStart(client_fd);
+        } else if (path == "/api/service/stop") {
+            handleApiServiceStop(client_fd);
         } else if (path == "/api/tree") {
             handleApiTree(client_fd, query);
         } else if (path == "/api/list") {
@@ -1070,6 +1211,52 @@ private:
         }
 
         std::string json = dirListToJson(target, showHidden);
+        sendResponse(fd, 200, "application/json", json);
+    }
+
+    // ===== Settings API =====
+    void handleApiSettings(int fd, const std::string& method, const std::string& rawReq) {
+        if (method == "GET") {
+            std::string settings = ServiceManager::loadSettings();
+            sendResponse(fd, 200, "application/json", settings);
+        } else if (method == "POST") {
+            // Extract body from request (after \r\n\r\n)
+            size_t bodyStart = rawReq.find("\r\n\r\n");
+            std::string body = (bodyStart != std::string::npos)
+                ? rawReq.substr(bodyStart + 4) : "";
+            // URL-decode for safety
+            ServiceManager::saveSettings(body);
+            sendResponse(fd, 200, "application/json",
+                "{\"success\":true,\"message\":\"Settings saved\"}");
+        } else {
+            sendResponse(fd, 405, "text/plain", "Method Not Allowed");
+        }
+    }
+
+    // ===== Service API =====
+    void handleApiServiceStatus(int fd) {
+        bool running = ServiceManager::isRunning();
+        std::string pidStr;
+        auto pidFile = ServiceManager::pidFilePath();
+        std::ifstream ifs(pidFile);
+        if (ifs.is_open()) { ifs >> pidStr; ifs.close(); }
+        std::ostringstream jss;
+        jss << "{\"running\":" << (running ? "true" : "false")
+            << ",\"pid\":\"" << (pidStr.empty() ? "0" : pidStr) << "\"}";
+        sendResponse(fd, 200, "application/json", jss.str());
+    }
+
+    void handleApiServiceStart(int fd) {
+        bool ok = ServiceManager::start(7200);
+        std::string json = "{\"success\":" + std::string(ok ? "true" : "false")
+                         + ",\"message\":\"" + (ok ? "Started" : "Failed to start") + "\"}";
+        sendResponse(fd, 200, "application/json", json);
+    }
+
+    void handleApiServiceStop(int fd) {
+        bool ok = ServiceManager::stop();
+        std::string json = "{\"success\":" + std::string(ok ? "true" : "false")
+                         + ",\"message\":\"" + (ok ? "Stopped" : "No instance running") + "\"}";
         sendResponse(fd, 200, "application/json", json);
     }
 
@@ -1323,6 +1510,61 @@ function getPrefixOfLine(lineEl) {
     }
 };
 
+// Out-of-line definition for ServiceManager::start (requires complete WebServer type)
+bool ServiceManager::start(int port) {
+    // Ensure config directory exists
+    fs::create_directories(configDir());
+
+    // If already running, stop first
+    if (isRunning()) {
+        std::cout << "[Service] Stopping existing instance...\n";
+        stop();
+#ifdef _WIN32
+        Sleep(1000);
+#else
+        sleep(1);
+#endif
+    }
+
+#ifdef _WIN32
+    // Windows: create detached process
+    STARTUPINFOA si = {sizeof(si)};
+    PROCESS_INFORMATION pi;
+    std::string cmdLine = std::to_string(port);
+    std::string exePath = getExecutablePath();
+    if (!CreateProcessA(exePath.c_str(), (LPSTR)cmdLine.c_str(),
+        NULL, NULL, FALSE, DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+        NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        writePid(pi.dwProcessId);
+        std::cout << "[Service] Started (PID: " << pi.dwProcessId << ")\n";
+        return true;
+    }
+    std::cerr << "[Service] Failed to create process\n";
+    return false;
+#else
+    // Unix: fork + setsid
+    pid_t pid = fork();
+    if (pid < 0) {
+        std::cerr << "[Service] Fork failed: " << strerror(errno) << "\n";
+        return false;
+    }
+    if (pid > 0) {
+        // Parent: write PID and exit
+        writePid(pid);
+        std::cout << "[Service] Started in background (PID: " << pid << ")\n";
+        std::cout << "[Service] Use 'tree --service off' to stop\n";
+        exit(0);
+    }
+    // Child: become session leader, start WebServer
+    setsid();
+    WebServer server(port);
+    server.start();
+    return true;
+#endif
+}
+
 class App {
 public:
     App() {
@@ -1455,8 +1697,12 @@ public:
         bool show_hidden = false;
         bool tui_mode = false;
         bool settings_mode = false;
-        bool web_mode = false;
+        int web_mode = 0;       // 0=none, 1=start(foreground), 2=start, 3=stop
+        int service_mode = 0;   // 0=none, 1=on, 2=off, 3=status
         std::vector<std::string> userArgs;
+
+        enum { WEB_NONE, WEB_START_FG, WEB_START_BG, WEB_STOP };
+        enum { SVC_NONE, SVC_ON, SVC_OFF, SVC_STATUS };
 
         for (int i = 1; i < argc; ++i) {
             if (strcmp(argv[i], "--elevated") == 0)
@@ -1467,18 +1713,47 @@ public:
                 tui_mode = true;
             else if (strcmp(argv[i], "--setting") == 0)
                 settings_mode = true;
-            else if (strcmp(argv[i], "--web") == 0 || strcmp(argv[i], "-w") == 0)
-                web_mode = true;
+            else if ((strcmp(argv[i], "--web") == 0 || strcmp(argv[i], "-w") == 0)) {
+                // Check for sub-command: start/stop
+                if (i + 1 < argc) {
+                    if (strcmp(argv[i+1], "start") == 0) { web_mode = WEB_START_BG; ++i; }
+                    else if (strcmp(argv[i+1], "stop") == 0) { web_mode = WEB_STOP; ++i; }
+                    else web_mode = WEB_START_FG;  // default: foreground start
+                } else {
+                    web_mode = WEB_START_FG;
+                }
+            }
+            else if (strcmp(argv[i], "--service") == 0) {
+                // Check for sub-command: on/off/status
+                if (i + 1 < argc) {
+                    if (strcmp(argv[i+1], "on") == 0) { service_mode = SVC_ON; ++i; }
+                    else if (strcmp(argv[i+1], "off") == 0) { service_mode = SVC_OFF; ++i; }
+                    else if (strcmp(argv[i+1], "status") == 0) { service_mode = SVC_STATUS; ++i; }
+                    else { std::cerr << "Unknown service sub-command: " << argv[i+1] << "\n"; return 1; }
+                } else {
+                    service_mode = SVC_ON;  // default --service → on
+                }
+            }
             else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
                 std::cout << "TreeVisual v1.1.0 - Directory Tree Visualizer\n\n"
                           << "Usage: tree [options] [path]\n\n"
                           << "Options:\n"
                           << "  --hidden    Show hidden files\n"
                           << "  -v          Interactive TUI mode\n"
-                          << "  -w, --web   Start WebUI on port 7200\n"
+                          << "  -w, --web [start|stop]   WebUI server control\n"
+                          << "                              (default: start in foreground)\n"
+                          << "  --service [on|off|status] Daemon service mode\n"
+                          << "                              (default: on)\n"
                           << "  --setting   Open settings\n"
                           << "  --elevated  Re-run with admin privileges (internal)\n"
                           << "  -h, --help  Show this help message\n\n"
+                          << "Examples:\n"
+                          << "  tree --web              Start WebUI (foreground)\n"
+                          << "  tree --web start        Start or restart WebUI\n"
+                          << "  tree --web stop         Stop WebUI server\n"
+                          << "  tree --service on       Start as background daemon\n"
+                          << "  tree --service off      Stop the daemon service\n"
+                          << "  tree --service status   Check if daemon is running\n\n"
                           << "If no path is specified, the current directory is used.\n";
                 return 0;
             }
@@ -1486,10 +1761,60 @@ public:
                 userArgs.push_back(argv[i]);
         }
 
-        if (web_mode) {
-            WebServer server(7200);
-            server.start();
+        // Handle --service commands
+        if (service_mode != SVC_NONE) {
+            switch (service_mode) {
+                case SVC_ON:
+                    ServiceManager::start(7200);
+                    break;
+                case SVC_OFF:
+                    ServiceManager::stop();
+                    break;
+                case SVC_STATUS:
+                    if (ServiceManager::isRunning()) {
+                        std::cout << "[Service] Running (PID file: "
+                                  << ServiceManager::pidFilePath() << ")\n";
+                    } else {
+                        std::cout << "[Service] Not running\n";
+                    }
+                    break;
+                default: break;
+            }
             return 0;
+        }
+
+        // Handle --web commands
+        if (web_mode != WEB_NONE) {
+            switch (web_mode) {
+                case WEB_STOP:
+                    if (!ServiceManager::isRunning()) {
+                        std::cout << "[WebUI] No running instance found.\n";
+                        return 1;
+                    }
+                    ServiceManager::stop();
+                    std::cout << "[WebUI] Server stopped.\n";
+                    return 0;
+
+                case WEB_START_BG:
+                case WEB_START_FG:
+                    // If already running and user wants start, restart
+                    if (ServiceManager::isRunning()) {
+                        std::cout << "[WebUI] Restarting existing instance...\n";
+                        ServiceManager::stop();
+#ifdef _WIN32
+                        Sleep(1000);
+#else
+                        sleep(1);
+#endif
+                    }
+                    {
+                        WebServer server(7200);
+                        server.start();
+                    }
+                    return 0;
+
+                default: break;
+            }
         }
 
         if (tui_mode || settings_mode) {

@@ -53,6 +53,11 @@
         </label>
         <input type="checkbox" id="enableWebGL">
       </div>
+      <div class="setting-item">
+        <span data-i18n="serviceMode" style="flex:1">Service Mode</span>
+        <span id="serviceStatusLabel" style="color:#565f89;font-size:12px;min-width:60px;text-align:right">Off</span>
+        <button id="serviceToggleBtn" onclick="toggleService()" style="padding:2px 10px;margin-left:4px;border:1px solid #3b4261;background:#24283;color:#c0caf5;border-radius:4px;cursor:pointer;font-size:11px">Enable</button>
+      </div>
     </div>
   </div>
   <span id="status"></span>

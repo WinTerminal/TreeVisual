@@ -23,6 +23,7 @@
       statusError: '错误',
       statusReady: '就绪',
       webglToggle: '启用 WebGL 渲染',
+      serviceMode: '服务模式',
       webglWarning: '[Beta] WebGL 渲染为实验性功能，可能存在性能问题或兼容性问题。点击关闭此提示。',
       langSwitch: '语言',
       pressEnterToContinue: '按 Enter 继续'
@@ -45,6 +46,7 @@
       statusError: 'Error',
       statusReady: 'Ready',
       webglToggle: 'Enable WebGL Rendering',
+      serviceMode: 'Service Mode',
       webglWarning: '[Beta] WebGL rendering is experimental. It may have performance or compatibility issues. Click to dismiss.',
       langSwitch: 'Language',
       pressEnterToContinue: 'Press Enter to continue'
