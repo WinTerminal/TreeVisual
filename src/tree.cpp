@@ -754,6 +754,13 @@ static std::string dirListToJson(const fs::path& dir, bool show_hidden) {
 class WebServer;
 
 class ServiceManager {
+    // Cross-platform PID type
+#ifdef _WIN32
+    using PidType = unsigned long;   // DWORD on Windows
+#else
+    using PidType = pid_t;
+#endif
+
 public:
     static std::string configDir() {
         std::string dir;
@@ -848,16 +855,16 @@ public:
     }
 
 private:
-    static pid_t readPid() {
+    static PidType readPid() {
         std::ifstream ifs(pidFilePath());
-        if (!ifs.is_open()) return -1;
-        pid_t pid;
+        if (!ifs.is_open()) return (PidType)-1;
+        PidType pid;
         ifs >> pid;
         ifs.close();
         return pid;
     }
 
-    static void writePid(pid_t pid) {
+    static void writePid(PidType pid) {
         std::ofstream ofs(pidFilePath());
         ofs << pid << "\n";
         ofs.close();
