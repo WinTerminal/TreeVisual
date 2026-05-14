@@ -28,8 +28,16 @@ function goUp() {
 }
 
 function goHome() {
-  pathInput.value = "/home/yyh";
-  scanDirectory();
+  fetch("/api/home")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      pathInput.value = data.path || "/";
+      scanDirectory();
+    })
+    .catch(function() {
+      pathInput.value = "/";
+      scanDirectory();
+    });
 }
 
 function refresh() {

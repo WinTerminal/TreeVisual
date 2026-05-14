@@ -114,7 +114,6 @@
     this.gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
     if (!this.gl) throw new Error('WebGL not supported');
 
-    this.gl = this.gl;
     var gl = this.gl;
 
     // Programs
@@ -298,11 +297,6 @@
           hasChildren: !!child.hasChildren
         });
 
-        edges.push({
-          x1: rootX, y1: rootY,
-          x2: cx, y2: cy,
-          r: 0.35, g: 0.40, b: 0.52
-        });
       }
     }
 

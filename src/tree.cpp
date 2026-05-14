@@ -24,6 +24,7 @@
 #include <functional>
 #include <map>
 #include <climits>
+#include <clocale>
 #ifndef _WIN32
 #include <sys/types.h>
 #include <signal.h>
@@ -50,6 +51,113 @@
 #endif
 
 namespace fs = std::filesystem;
+
+// ==================== Terminal Encoding Auto-Detection ====================
+// Automatically detects and configures terminal encoding at startup.
+// Prevents garbled output (mojibake) on terminals with different encodings
+// (e.g., UTF-8, GBK, Big5). Falls back to ASCII-safe characters when needed.
+namespace TerminalEncoding {
+    enum class Mode {
+        UTF8,       // Terminal supports UTF-8 output
+        Fallback,   // Non-UTF-8 encoding (GBK, etc.) — use ASCII alternatives
+        Unknown     // Not yet detected
+    };
+
+    Mode initialize();
+    Mode currentMode();
+
+    // Convert a UTF-8 string to the terminal's current encoding (for Windows fallback)
+    std::string toTerminalEncoding(const std::string& utf8_text);
+
+    namespace detail {
+        static Mode mode_ = Mode::Unknown;
+        static bool initialized_ = false;
+    }
+}
+
+TerminalEncoding::Mode TerminalEncoding::initialize() {
+#ifdef _WIN32
+    // --- Windows: try to set console code page to UTF-8 ---
+    BOOL cp_ok = SetConsoleOutputCP(CP_UTF8) && SetConsoleCP(CP_UTF8);
+    if (cp_ok) {
+        UINT actual_cp = GetConsoleOutputCP();
+        if (actual_cp == CP_UTF8 || actual_cp == 65001) {
+            detail::mode_ = Mode::UTF8;
+            detail::initialized_ = true;
+            return Mode::UTF8;
+        }
+    }
+
+    // Fallback: keep system default (e.g., GBK 936 on Chinese Windows)
+    detail::mode_ = Mode::Fallback;
+    detail::initialized_ = true;
+    return Mode::Fallback;
+
+#else
+    // --- Unix/Linux/macOS: use system locale ---
+    char* loc = setlocale(LC_ALL, "");
+    if (loc != nullptr) {
+        std::string locale_str(loc);
+        if (locale_str.find("UTF-8") != std::string::npos ||
+            locale_str.find("utf8") != std::string::npos) {
+            detail::mode_ = Mode::UTF8;
+        } else if (!locale_str.empty()) {
+            detail::mode_ = Mode::Fallback;   // e.g., zh_CN.GBK, zh_TW.Big5
+        } else {
+            detail::mode_ = Mode::Fallback;
+        }
+    } else {
+        // setlocale("") failed — try explicit C.UTF-8
+        loc = setlocale(LC_ALL, "C.UTF-8");
+        if (loc) {
+            detail::mode_ = Mode::UTF8;
+        } else {
+            setlocale(LC_ALL, "C");  // final fallback: ASCII-only
+            detail::mode_ = Mode::Fallback;
+        }
+    }
+    detail::initialized_ = true;
+    return detail::mode_;
+#endif
+}
+
+TerminalEncoding::Mode TerminalEncoding::currentMode() {
+    if (!detail::initialized_) return initialize();
+    return detail::mode_;
+}
+
+std::string TerminalEncoding::toTerminalEncoding(const std::string& utf8_text) {
+    if (detail::mode_ == Mode::UTF8 ||
+        detail::mode_ == Mode::Unknown ||
+        utf8_text.empty()) {
+        return utf8_text;
+    }
+
+#ifdef _WIN32
+    // Convert UTF-8 → wide → current console code page (e.g., GBK)
+    int wsize = MultiByteToWideChar(CP_UTF8, 0,
+                                     utf8_text.c_str(), -1, nullptr, 0);
+    if (wsize <= 0) return utf8_text;
+
+    std::vector<wchar_t> wbuf(wsize);
+    MultiByteToWideChar(CP_UTF8, 0, utf8_text.c_str(), -1,
+                        wbuf.data(), wsize);
+
+    UINT target_cp = GetConsoleOutputCP();
+    int asize = WideCharToMultiByte(target_cp, 0,
+                                     wbuf.data(), -1,
+                                     nullptr, 0, nullptr, nullptr);
+    if (asize <= 0) return utf8_text;
+
+    std::vector<char> abuf(asize);
+    WideCharToMultiByte(target_cp, 0, wbuf.data(), -1,
+                        abuf.data(), asize, nullptr, nullptr);
+    return std::string(abuf.data());
+#else
+    // On Unix, most modern systems use UTF-8 natively; no conversion needed here
+    return utf8_text;
+#endif
+}
 
 namespace {
     fs::path getHomeDirImpl() {
@@ -388,8 +496,8 @@ public:
     }
 
 private:
-    mutable const char* cached_cmd_ = nullptr;
-    mutable bool cmd_checked_ = false;
+    const char* cached_cmd_ = nullptr;
+    bool cmd_checked_ = false;
 
     const char* detectClipboardCommand() const {
 #ifdef _WIN32
@@ -486,7 +594,7 @@ private:
             " Made by WinTerminal\n"
             " Github repo: `https://github.com/WinTerminal/TreeVisual/`\n"
             " Bilibili: `https://space.bilibili.com/3546863863073060`\n"
-            " © 2026 WinTerminal)";
+             " © 2026 WinTerminal\n";
 ofs.write(footer, strlen(footer));
         return filePath;
     }
@@ -616,12 +724,20 @@ public:
 private:
     static void formatNode(const std::shared_ptr<Node>& node, const std::string& prefix,
                          bool is_last, std::vector<std::string>& lines) {
+        // Encoding-aware tree drawing: use ASCII-safe characters on non-UTF-8 terminals
+        const bool use_ascii = (TerminalEncoding::currentMode() != TerminalEncoding::Mode::UTF8);
+
         std::string name = node->name();
         if (node->isDirectory() && name.find('/') == std::string::npos)
             name += "/";
 
         if (!prefix.empty()) {
-            std::string connector = is_last ? "└─ " : "├─ ";
+            const char* conn_last  = use_ascii ? "+-- " : "\xe2\x94\x94\xe2\x94\x80 ";
+            const char* conn_mid   = use_ascii ? "|-- " : "\xe2\x94\x9c\xe2\x94\x80 ";
+            const char* pref_last  = use_ascii ? "    " : "    ";
+            const char* pref_mid   = use_ascii ? "|   " : "\xe2\x94\x82   ";
+
+            std::string connector = is_last ? conn_last : conn_mid;
             lines.push_back(prefix + connector + name);
         } else {
             lines.push_back(name);
@@ -633,7 +749,10 @@ private:
         size_t count = children.size();
         for (size_t i = 0; i < count; ++i) {
             bool child_is_last = (i == count - 1);
-            std::string child_prefix = prefix + (is_last ? "    " : "│   ");
+            const char* pref = (is_last
+                ? (use_ascii ? "    " : "    ")
+                : (use_ascii ? "|   " : "\xe2\x94\x82   "));
+            std::string child_prefix = prefix + pref;
             formatNode(children[i], child_prefix, child_is_last, lines);
         }
     }
@@ -680,7 +799,7 @@ static std::string nodeToJson(const std::shared_ptr<Node>& node, const std::stri
                 if (i > 0) json += ",";
                 std::string childPath;
                 if (!absPath.empty()) {
-                    childPath = absPath + "/" + children[i]->name();
+                    childPath = (fs::path(absPath) / children[i]->name()).string();
                 }
                 json += nodeToJson(children[i], childPath, false);
             }
@@ -1009,11 +1128,19 @@ private:
              << "Content-Type: " << content_type << "\r\n"
              << "Content-Length: " << body.size() << "\r\n"
              << "Access-Control-Allow-Origin: *\r\n"
+             << "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n"
              << "Connection: close\r\n"
              << "\r\n"
              << body;
         std::string data = resp.str();
-        send(fd, data.c_str(), data.size(), 0);
+        const char* ptr = data.data();
+        size_t remaining = data.size();
+        while (remaining > 0) {
+            int n = send(fd, ptr, remaining, 0);
+            if (n <= 0) break;
+            ptr += n;
+            remaining -= static_cast<size_t>(n);
+        }
     }
 
     void handleClient(int client_fd) {
@@ -1034,14 +1161,22 @@ private:
         std::string method = req.substr(0, method_end);
         std::string full_path = req.substr(method_end + 1, path_end - method_end - 1);
 
-        if (method != "GET") {
+        std::string path = full_path;
+        std::string query;
+
+        // Allow POST only for API endpoints that need it
+        if (method == "POST" && path != "/api/settings"
+                           && path != "/api/service/start"
+                           && path != "/api/service/stop") {
+            sendResponse(client_fd, 400, "text/plain", "Method Not Allowed");
+            closeSocket(client_fd);
+            return;
+        } else if (method != "GET" && method != "POST") {
             sendResponse(client_fd, 400, "text/plain", "Method Not Allowed");
             closeSocket(client_fd);
             return;
         }
 
-        std::string path = full_path;
-        std::string query;
         size_t qpos = path.find('?');
         if (qpos != std::string::npos) {
             query = path.substr(qpos + 1);
@@ -1071,6 +1206,8 @@ private:
             handleApiTree(client_fd, query);
         } else if (path == "/api/list") {
             handleApiList(client_fd, query);
+        } else if (path == "/api/home") {
+            handleApiHome(client_fd);
         } else {
             sendResponse(client_fd, 404, "text/plain", "Not Found");
         }
@@ -1124,8 +1261,11 @@ private:
             std::error_code ec;
             if (fs::exists(filePath, ec) && fs::is_regular_file(filePath, ec) && !fs::is_symlink(filePath, ec)) {
                 // Security: ensure file is within webroot
-                auto canonicalFile = fs::canonical(filePath, ec);
-                auto canonicalRoot = fs::canonical(webRoot, ec);
+                std::error_code ec2;
+                auto canonicalFile = fs::canonical(filePath, ec2);
+                if (ec2) { sendResponse(client_fd, 500, "text/plain", "Internal Server Error"); return; }
+                auto canonicalRoot = fs::canonical(webRoot, ec2);
+                if (ec2) { sendResponse(client_fd, 500, "text/plain", "Internal Server Error"); return; }
 
                 std::string fStr = canonicalFile.string();
                 std::string rStr = canonicalRoot.string();
@@ -1219,6 +1359,19 @@ private:
 
         std::string json = dirListToJson(target, showHidden);
         sendResponse(fd, 200, "application/json", json);
+    }
+
+    void handleApiHome(int fd) {
+        std::string home;
+#ifdef _WIN32
+        char* userprofile = getenv("USERPROFILE");
+        home = userprofile ? std::string(userprofile) : "C:\\";
+#else
+        char* homeEnv = getenv("HOME");
+        home = homeEnv ? std::string(homeEnv) : "/";
+#endif
+        sendResponse(fd, 200, "application/json",
+            "{\"path\":\"" + jsonEscape(home) + "\"}");
     }
 
     // ===== Settings API =====
@@ -1351,8 +1504,16 @@ function goUp() {
 }
 
 function goHome() {
-  pathInput.value = "/home/yyh";
-  scanDirectory();
+  fetch("/api/home")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      pathInput.value = data.path || "/";
+      scanDirectory();
+    })
+    .catch(function() {
+      pathInput.value = "/";
+      scanDirectory();
+    });
 }
 
 function refresh() {
@@ -1537,9 +1698,12 @@ bool ServiceManager::start(int port) {
     // Windows: create detached process
     STARTUPINFOA si = {sizeof(si)};
     PROCESS_INFORMATION pi;
-    std::string cmdLine = std::to_string(port);
     std::string exePath = getExecutablePath();
-    if (!CreateProcessA(exePath.c_str(), (LPSTR)cmdLine.c_str(),
+    std::string cmdLine = "\"" + exePath + "\" --web";
+    // CreateProcessA may modify the command line string, use mutable buffer
+    std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
+    mutableCmd.push_back('\0');
+    if (CreateProcessA(exePath.c_str(), mutableCmd.data(),
         NULL, NULL, FALSE, DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
         NULL, NULL, &si, &pi)) {
         CloseHandle(pi.hProcess);
@@ -1575,6 +1739,9 @@ bool ServiceManager::start(int port) {
 class App {
 public:
     App() {
+        // Initialize terminal encoding at earliest opportunity
+        TerminalEncoding::initialize();
+
     #ifdef _WIN32
         platform_ = std::make_unique<WindowsPlatformHelper>();
     #else
@@ -1674,26 +1841,18 @@ public:
             std::cout << "=======================================\n";
             std::cout << "         Settings\n";
             std::cout << "=======================================\n";
-            std::cout << "1. Theme: " << theme_ << "\n";
-            std::cout << "2. Output Mode: " << outputMode_ << "\n";
-            std::cout << "3. Max Lines: " << maxLines_ << "\n";
-            std::cout << "4. Back\n";
-            std::cout << "\nSelect (1-4): ";
+            std::cout << "1. Max Lines: " << maxLines_ << "\n";
+            std::cout << "2. Back\n";
+            std::cout << "\nSelect (1-2): ";
 
             std::string input;
             std::getline(std::cin, input);
 
             if (input == "1") {
-                std::cout << "Theme (Default/Dark): ";
-                std::getline(std::cin, theme_);
-            } else if (input == "2") {
-                std::cout << "Output Mode (Auto/Clipboard/File): ";
-                std::getline(std::cin, outputMode_);
-            } else if (input == "3") {
                 std::cout << "Max Lines: ";
                 std::getline(std::cin, input);
                 try { maxLines_ = std::stoi(input); } catch (...) {}
-            } else if (input == "4" || input == "q") {
+            } else if (input == "2" || input == "q") {
                 break;
             }
         }
@@ -1885,8 +2044,6 @@ public:
 
 private:
     std::unique_ptr<IPlatformHelper> platform_;
-    std::string theme_ = "Default";
-    std::string outputMode_ = "Auto";
     int maxLines_ = 100;
 };
 
