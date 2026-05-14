@@ -1460,7 +1460,7 @@ button:hover{background:#bb9af7}
 <body>
 <div class="header">
   <h1>TreeVisual</h1>
-  <span>v1.1.0</span>
+  <span>v1.1.2</span>
   <input type="text" id="pathInput" placeholder="Enter directory path...">
   <button onclick="scanDirectory()">Scan</button>
 </div>
@@ -1766,7 +1766,7 @@ public:
         while (true) {
             std::cout << "\033[2J\033[H";
             std::cout << "=======================================\n";
-            std::cout << "         TreeVisual TUI v1.1.0\n";
+            std::cout << "         TreeVisual TUI v1.1.2\n";
             std::cout << "=======================================\n";
             std::cout << "Current: " << current.string() << "\n\n";
             
@@ -1901,7 +1901,7 @@ public:
                 }
             }
             else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-                std::cout << "TreeVisual v1.1.0 - Directory Tree Visualizer\n\n"
+                std::cout << "TreeVisual v1.1.2 - Directory Tree Visualizer\n\n"
                           << "Usage: tree [options] [path]\n\n"
                           << "Options:\n"
                           << "  --hidden    Show hidden files\n"
