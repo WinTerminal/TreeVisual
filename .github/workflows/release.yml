@@ -88,10 +88,23 @@ jobs:
       - name: List assets
         run: ls -lh
 
+      - name: Generate release notes
+        run: |
+          cat > release-notes.md << EOF
+          ## Downloads
+
+          | Platform | Script | Portable |
+          |----------|--------|----------|
+          | Windows | install.bat | tree-windows-${{ github.ref_name }}.zip |
+          | macOS | install.sh | tree-macos-${{ github.ref_name }}.zip |
+          | Linux | install.sh | tree-linux-${{ github.ref_name }}.tar.gz |
+
+          EOF
+
       - name: Create Release & Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             tree-*.tar.gz
             tree-*.zip
