@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Embed web assets
+        run: python3 scripts/embed-web.py
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DWEB_EMBEDDED=ON
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          PKG="tree-linux-${{ github.ref_name }}"
+          mkdir -p "$PKG/web"
+          cp build/tree "$PKG/"
+          cp install.sh "$PKG/"
+          cp src/web/* "$PKG/web/"
+          sed "s/{version}/${{ github.ref_name }}/g" packaging/README.txt > "$PKG/README.txt"
+          sed "s/{version}/${{ github.ref_name }}/g" packaging/README-zh.txt > "$PKG/README-zh.txt"
+          tar czf "$PKG.tar.gz" "$PKG/"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          PKG="tree-macos-${{ github.ref_name }}"
+          mkdir -p "$PKG/web"
+          cp build/tree "$PKG/"
+          cp install.sh "$PKG/"
+          cp src/web/* "$PKG/web/"
+          sed "s/{version}/${{ github.ref_name }}/g" packaging/README.txt > "$PKG/README.txt"
+          sed "s/{version}/${{ github.ref_name }}/g" packaging/README-zh.txt > "$PKG/README-zh.txt"
+          zip -r "$PKG.zip" "$PKG/"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pkg = "tree-windows-$env:GITHUB_REF_NAME"
+          New-Item -ItemType Directory -Path "$pkg/web"
+          Copy-Item "build/Release/tree.exe" "$pkg/"
+          Copy-Item "install.bat" "$pkg/"
+          Copy-Item "src/web/*" "$pkg/web/"
+          (Get-Content "packaging/README.txt") -replace "{version}", "$env:GITHUB_REF_NAME" | Set-Content "$pkg/README.txt"
+          (Get-Content "packaging/README-zh.txt") -replace "{version}", "$env:GITHUB_REF_NAME" | Set-Content "$pkg/README-zh.txt"
+          Compress-Archive -Path "$pkg" -DestinationPath "$pkg.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: package-${{ runner.os }}
+          path: |
+            tree-*.tar.gz
+            tree-*.zip
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -lh
+
+      - name: Create Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            tree-*.tar.gz
+            tree-*.zip
+            install.sh
+            install.bat
