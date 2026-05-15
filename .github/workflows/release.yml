@@ -90,14 +90,15 @@ jobs:
 
       - name: Generate release notes
         run: |
+          BASE="${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
           cat > release-notes.md << EOF
           ## Downloads
 
           | Platform | Script | Portable |
           |----------|--------|----------|
-          | Windows | install.bat | tree-windows-${{ github.ref_name }}.zip |
-          | macOS | install.sh | tree-macos-${{ github.ref_name }}.zip |
-          | Linux | install.sh | tree-linux-${{ github.ref_name }}.tar.gz |
+          | Windows | [install.bat]($BASE/install.bat) | [tree-windows-${{ github.ref_name }}.zip]($BASE/tree-windows-${{ github.ref_name }}.zip) |
+          | macOS | [install.sh]($BASE/install.sh) | [tree-macos-${{ github.ref_name }}.zip]($BASE/tree-macos-${{ github.ref_name }}.zip) |
+          | Linux | [install.sh]($BASE/install.sh) | [tree-linux-${{ github.ref_name }}.tar.gz]($BASE/tree-linux-${{ github.ref_name }}.tar.gz) |
 
           EOF
 
