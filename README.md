@@ -1,11 +1,13 @@
 [![C++17](https://img.shields.io/badge/C++-17-blue?style=flat&logo=c%2B%2B)](https://en.cppreference.com/w/)
 [![MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat)](https://github.com/WinTerminal/TreeVisual)
-[![Version](https://img.shields.io/badge/version-v1.1.0-7aa2f7?style=flat)]()
+[![Version](https://img.shields.io/badge/version-v1.1.3-7aa2f7?style=flat)]()
+[![Release](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml/badge.svg)](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml)
 
 # TreeVisual - Cross-platform Directory Tree Visualizer
 
-A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree browser). Built in C++17, zero third-party dependencies.
+A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree browser). Built in C++17, zero third-party dependencies.  
+[Download latest release](https://github.com/WinTerminal/TreeVisual/releases/latest) | Auto-build on tag push via GitHub Actions.
 
 ## Features
 
@@ -15,61 +17,34 @@ A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree brow
 - **Multi-threaded acceleration** - Parallel traversal for large directories (2-5x speedup)
 - **Auto privilege elevation** - Prompt to re-run as admin/root on permission denied
 - **Safe symlink handling** - Prevents crashes from circular links
+- **Daemon service mode** (`--service on|off|status`) - Background WebUI server
 
-### WebUI Mode (`--web`) - **NEW in v1.1.0**
+### WebUI Mode (`--web`)
 - **Lazy-loading tree structure** - Only loads one level at a time; expand directories on demand
-- **Separated frontend files** - HTML / CSS / JS extracted into `src/web/` for easy customization
-- **Multi-language support** - Chinese / English toggle, auto-detects browser language
+- **i18n support** - English / Simplified Chinese / Traditional Chinese, auto-detects browser language
 - **WebGL rendering (Beta)** - Force-directed graph visualization for directory trees
 - **Settings panel** - Show hidden files, enable WebGL, etc.
-- **Optimized CSS** - Tokyo Night theme, responsive design, smooth animations
-
-## Architecture
-
-```
-TreeVisual/
-├── src/
-│   ├── tree.cpp          # Main source file (~1500 lines)
-│   └── web/              # WebUI static assets
-│       ├── index.html    # Page skeleton + i18n attributes
-│       ├── styles.css    # Tokyo Night theme + responsive
-│       ├── app.js        # Core logic (tree render, lazy-load)
-│       ├── i18n.js       # Chinese/English dictionary
-│       └── webgl.js      # Force-directed graph renderer (Beta)
-├── CMakeLists.txt
-├── install.sh            # Unix installer
-└── install.bat           # Windows installer
-```
-
-| Component | Description |
-|-----------|-------------|
-| `WebServer` | Embedded HTTP server (raw sockets), static file serving |
-| `dirTreeToJson()` | Single-level API: returns children + `hasChildren` flag |
-| `getWebRoot()` | Multi-candidate path resolution with fallback |
-| `i18n.js` | Frontend-only dictionary, no backend changes needed |
+- **Tokyo Night theme** - Responsive design, smooth animations
 
 ## Quick Start
 
 ```bash
-# Clone & build
-git clone https://github.com/WinTerminal/TreeVisual.git
-cd TreeVisual
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+# Option 1: Download pre-built package
+# https://github.com/WinTerminal/TreeVisual/releases/latest
 
-# Run CLI mode
-./build/tree /path/to/dir
-
-# Run WebUI (opens http://127.0.0.1:7200/)
-./build/tree --web
-```
-
-Or use the installer:
-```bash
+# Option 2: Build from source (auto-downloads dependencies)
 ./install.sh    # Linux/macOS
 install.bat     # Windows
+
+# Option 3: Manual build
+git clone https://github.com/WinTerminal/TreeVisual.git
+cd TreeVisual && mkdir build && cd build
+cmake .. && make -j$(nproc)
+./tree --web
 ```
+
+The installer automatically downloads source code and web assets, embeds them into the binary, compiles, and cleans up.  
+It detects your system locale and encoding (UTF-8/GBK/Big5) to display messages in English, 简体中文 or 繁體中文.
 
 ## Usage
 
@@ -77,18 +52,46 @@ install.bat     # Windows
 tree [path]              Show directory tree (CLI)
 tree -v                  Interactive TUI mode
 tree --web               Start WebUI server (port 7200)
+tree --web stop          Stop running WebUI server
+tree --service on        Start as background daemon
+tree --service off       Stop daemon service
+tree --service status    Check daemon status
 tree --hidden            Show hidden files/directories
 tree --setting           Open settings panel
 ```
 
-## WebUI API
+## Architecture
+
+```
+TreeVisual/
+├── src/
+│   ├── tree.cpp          # Main source file (~1800 lines)
+│   └── web/              # WebUI static assets
+│       ├── index.html
+│       ├── styles.css    # Tokyo Night theme
+│       ├── app.js        # Core logic (tree render, lazy-load)
+│       ├── i18n.js       # EN/zh-CN/zh-TW dictionary
+│       └── webgl.js      # Force-directed graph renderer (Beta)
+├── scripts/
+│   └── embed-web.py      # Embeds web/ into tree.cpp at compile time
+├── packaging/            # Release packaging templates
+├── .github/workflows/
+│   ├── build.yml         # CI build on push/PR
+│   └── release.yml       # Auto release on tag push (3 platforms)
+├── CMakeLists.txt
+├── install.sh            # Linux/macOS installer (auto-download + compile)
+└── install.bat           # Windows installer
+```
+
+## API
 
 | Endpoint | Method | Params | Description |
 |----------|--------|--------|-------------|
 | `/api/tree` | GET | `path`, `show_hidden` | Single-level tree JSON |
 | `/api/list` | GET | `path`, `show_hidden` | Flat directory listing JSON |
-
-Static files served from `src/web/`: `index.html`, `styles.css`, `app.js`, `i18n.js`, `webgl.js`
+| `/api/settings` | GET/POST | - | Persist settings (showHidden, language, webgl) |
+| `/api/home` | GET | - | Returns user home directory path |
+| `/api/service/status` | GET | - | Daemon running status |
 
 ## Tech Stack
 
@@ -101,23 +104,31 @@ Static files served from `src/web/`: `index.html`, `styles.css`, `app.js`, `i18n
 | Frontend | Vanilla HTML/CSS/JS (no frameworks) |
 | WebGL | WebGL 1.0, GLSL shaders (Beta) |
 | Clipboard | Win32 API / pbcopy / xclip |
+| CI/CD | GitHub Actions (3 platforms) |
 
 ## Changelog
 
+### v1.1.3
+- **Auto Release workflow**: Tag push triggers cross-platform build, packaging, and GitHub Release
+- **Install script enhancement**: Auto-downloads web assets, embeds into binary, cleans up after compile
+- **i18n: 3 languages**: English / 简体中文 / 繁體中文, auto-detects locale encoding (UTF-8/GBK/Big5)
+- **PATH prompt**: Default `(Y/n)` — press Enter to add, `n` to skip
+- **WebUI embedded fallback**: `WEB_EMBEDDED` compile flag bakes web files into the binary
+
+### v1.1.2
+- **Bugfix: 14 issues fixed**: Windows Service crash (inverted condition), hardcoded home path, CSS orphans, MSVC string limit, CSP header, etc.
+- **Cross-platform packages**: Pre-built binaries for Linux/macOS/Windows via GitHub Actions
+
+### v1.1.1
+- Service mode (`--service on|off|status`)
+- Settings persistence (`/api/settings`)
+- WebUI start/stop subcommands (`--web start|stop`)
+
 ### v1.1.0
-- **WebUI lazy loading**: Single-layer API, async child expansion
-- **Frontend separation**: Extracted HTML/CSS/JS into `src/web/`
-- **i18n support**: Chinese/English language switching
-- **WebGL Beta**: Force-directed graph visualization
-- **CSS overhaul**: CSS variables, responsive layout, animations
-- **Settings panel**: Show hidden files, WebGL toggle
-- **Static file serving**: Backend serves web assets from disk with fallback
-
-### v1.0.2
-- Initial WebUI release (embedded HTML)
-
-### v1.0.1
-- First public release (CLI/TUI only)
+- WebUI lazy loading, frontend separation into `src/web/`
+- i18n support (Chinese/English)
+- WebGL Beta, CSS overhaul, settings panel
+- Static file serving with fallback
 
 ## Contributing
 
