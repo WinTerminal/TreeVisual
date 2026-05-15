@@ -194,17 +194,28 @@ compile() {
     download_source
     msg compiling
 
+    # Embed web assets into binary (WebUI fallback)
+    if command -v python3 &>/dev/null && [[ -f "scripts/embed-web.py" ]] && [[ -d "src/web" ]]; then
+        msg dep_installing "web assets"
+        python3 scripts/embed-web.py
+        EMBED_FLAG="-DWEB_EMBEDDED"
+        CMAKE_EMBED="-DWEB_EMBEDDED=ON"
+    else
+        EMBED_FLAG=""
+        CMAKE_EMBED=""
+    fi
+
     if [[ -f "CMakeLists.txt" ]]; then
         msg build_cmake
         mkdir -p build
         cd build
-        cmake .. >/dev/null 2>&1
+        cmake .. $CMAKE_EMBED >/dev/null 2>&1
         make -j"$(nproc)"
         cd ..
         cp "build/tree" "./$BINARY_NAME"
     else
         msg build_gxx
-        g++ -std=c++17 -pthread -O2 src/tree.cpp -o "$BINARY_NAME"
+        g++ -std=c++17 -pthread -O2 $EMBED_FLAG src/tree.cpp -o "$BINARY_NAME"
     fi
 
     if [[ -f "./$BINARY_NAME" ]]; then

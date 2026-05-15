@@ -44,6 +44,18 @@ if not exist "src\tree.cpp" (
     )
 )
 
+::---------- Embed Web Assets ----------
+set "EMBED_FLAG="
+if exist "scripts\embed-web.py" if exist "src\web" (
+    echo [INFO] Embedding web assets into binary...
+    python3 scripts\embed-web.py
+    if !errorlevel! equ 0 (
+        set "EMBED_FLAG=/DWEB_EMBEDDED"
+    ) else (
+        echo [WARN] Web embedding failed, continuing without embedded assets
+    )
+)
+
 ::---------- Compile ----------
 echo [INFO] Compiling TreeVisual...
 
@@ -51,13 +63,17 @@ if exist "CMakeLists.txt" (
     echo [INFO] Using CMake
     if not exist "build" mkdir build
     cd build
-    cmake .. 2>&1
+    if "!EMBED_FLAG!"=="" (
+        cmake .. 2>&1
+    ) else (
+        cmake .. -DWEB_EMBEDDED=ON 2>&1
+    )
     cmake --build . --config Release 2>&1
     cd ..
     copy "build\Release\tree.exe" "%BINARY_NAME%" 2>&1
 ) else (
     echo [INFO] Using g++
-    g++ -std=c++17 -pthread -O2 src/tree.cpp -o "%BINARY_NAME%" -static -lshlwapi -lole32 -lshell32
+    g++ -std=c++17 -pthread -O2 !EMBED_FLAG! src/tree.cpp -o "%BINARY_NAME%" -static -lshlwapi -lole32 -lshell32
 )
 
 if not exist "%BINARY_NAME%" (

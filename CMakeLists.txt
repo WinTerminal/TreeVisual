@@ -4,6 +4,12 @@ project(TreeVisual VERSION 1.1.2 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ===== Web Embedding (optional) =====
+option(WEB_EMBEDDED "Embed web assets into binary" OFF)
+if(WEB_EMBEDDED)
+    add_definitions(-DWEB_EMBEDDED)
+endif()
+
 # ===== Source =====
 add_executable(tree src/tree.cpp)
 
