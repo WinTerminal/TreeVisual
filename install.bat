@@ -11,6 +11,11 @@ set "BINARY_NAME=tree.exe"
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
+::---------- Detect Encoding ----------
+:: If console code page is not UTF-8 (65001), use ASCII-safe English output
+for /f "tokens=3" %%A in ('chcp') do set "CP=%%A"
+if "%CP%"=="65001" ( set "HAS_UTF8=1" ) else ( set "HAS_UTF8=0" )
+
 echo =======================================
 echo   TreeVisual Installer v1.1.0
 echo =======================================

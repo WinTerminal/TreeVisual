@@ -19,12 +19,24 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-#---------- Detect Language ----------
-if [[ "$LANG" =~ ^zh_CN ]]; then
-    SCRIPT_LANG="cn"
-elif [[ "$LANG" =~ ^zh_TW ]] || [[ "$LANG" =~ ^zh_HK ]] || [[ "$LANG" =~ ^zh_SG ]]; then
-    SCRIPT_LANG="tw"
+#---------- Detect Language & Encoding ----------
+# Extract encoding from locale (e.g. zh_CN.UTF-8 -> UTF-8, zh_CN.GBK -> GBK)
+ENCODING=""
+if [[ "$LANG" =~ \.([^.]*)$ ]]; then
+    ENCODING="${BASH_REMATCH[1]}"
+fi
+
+if [[ -z "$ENCODING" ]] || [[ "$ENCODING" =~ ^[Uu][Tt][Ff]-?8$ ]] || [[ "$ENCODING" =~ ^[Uu][Tt][Ff]8$ ]]; then
+    # UTF-8 or unknown encoding: use language-based selection safely
+    if [[ "$LANG" =~ ^zh_CN ]]; then
+        SCRIPT_LANG="cn"
+    elif [[ "$LANG" =~ ^zh_TW ]] || [[ "$LANG" =~ ^zh_HK ]] || [[ "$LANG" =~ ^zh_SG ]]; then
+        SCRIPT_LANG="tw"
+    else
+        SCRIPT_LANG="en"
+    fi
 else
+    # Non-UTF-8 encoding (GBK, Big5, etc.): force English to avoid mojibake
     SCRIPT_LANG="en"
 fi
 
