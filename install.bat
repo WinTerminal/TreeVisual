@@ -44,6 +44,23 @@ if not exist "src\tree.cpp" (
     )
 )
 
+::---------- Download Web Assets ----------
+set "WEB_BASE=https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/web"
+if not exist "src\web" mkdir src\web 2>nul
+if not exist "src\web\index.html" (
+    echo [INFO] Downloading web assets...
+    powershell -Command "Invoke-WebRequest -Uri '%WEB_BASE%/index.html' -OutFile 'src\web\index.html'"
+    powershell -Command "Invoke-WebRequest -Uri '%WEB_BASE%/styles.css' -OutFile 'src\web\styles.css'"
+    powershell -Command "Invoke-WebRequest -Uri '%WEB_BASE%/app.js' -OutFile 'src\web\app.js'"
+    powershell -Command "Invoke-WebRequest -Uri '%WEB_BASE%/i18n.js' -OutFile 'src\web\i18n.js'"
+    powershell -Command "Invoke-WebRequest -Uri '%WEB_BASE%/webgl.js' -OutFile 'src\web\webgl.js'"
+    if exist "src\web\index.html" (
+        echo [OK] Web assets downloaded
+    ) else (
+        echo [WARN] Web asset download failed, continuing without embedded UI
+    )
+)
+
 ::---------- Embed Web Assets ----------
 set "EMBED_FLAG="
 if exist "scripts\embed-web.py" if exist "src\web" (
@@ -84,6 +101,10 @@ if not exist "%BINARY_NAME%" (
 
 echo [OK] Build complete: .\%BINARY_NAME%
 
+::---------- Cleanup downloaded sources ----------
+if exist "src\tree.cpp" del /q "src\tree.cpp" >nul 2>&1
+if exist "src\web" rmdir /s /q "src\web" >nul 2>&1
+
 ::---------- Copy WebUI Assets ----------
 if exist "src\web" (
     if not exist "share\treevisual\web" mkdir share\treevisual\web >nul 2>&1
@@ -106,9 +127,9 @@ if %errorlevel% equ 0 (
     goto :complete
 )
 
-echo [INFO] Add to system PATH? (y/n)
+echo [INFO] Add to system PATH? (Y/n)
 set /p "add_path="
-if /i not "!add_path!"=="y" (
+if /i "!add_path!"=="n" (
     echo [INFO] Skipped PATH configuration
     echo You can manually add: %SCRIPT_DIR%
     goto :complete

@@ -22,6 +22,8 @@ NC='\033[0m'
 #---------- Detect Language ----------
 if [[ "$LANG" =~ ^zh_CN ]]; then
     SCRIPT_LANG="cn"
+elif [[ "$LANG" =~ ^zh_TW ]] || [[ "$LANG" =~ ^zh_HK ]] || [[ "$LANG" =~ ^zh_SG ]]; then
+    SCRIPT_LANG="tw"
 else
     SCRIPT_LANG="en"
 fi
@@ -48,12 +50,39 @@ msg() {
                 build_failed) echo -e "${RED}编译失败${NC}" ;;
                 tree_exists) echo -e "${YELLOW}系统已安装 tree，重命名为 $2${NC}" ;;
                 path_exists) echo -e "${GREEN}目录已在 PATH 中${NC}" ;;
-                path_ask) echo -e "${YELLOW}是否添加到 PATH？(y/n): ${NC}" ;;
+                path_ask) echo -e "${YELLOW}是否添加到 PATH？(Y/n): ${NC}" ;;
                 path_added) echo -e "${GREEN}已添加 PATH 到 $2${NC}" ;;
                 path_skip) echo -e "${YELLOW}跳过 PATH 配置${NC}" ;;
                 path_shell_err) echo -e "${RED}未识别的 shell: $2${NC}" ;;
                 complete) echo -e "${GREEN}安装完成！$2${NC}" ;;
                 unsupported) echo -e "${RED}不支持的操作系统: $2${NC}" ;;
+            esac
+            ;;
+        tw)
+            case "$1" in
+                init) echo -e "${BLUE}TreeVisual 安裝腳本 v${SCRIPT_VERSION}${NC}" ;;
+                platform) echo -e "${GREEN}偵測到平台: $2${NC}" ;;
+                dep_exists) echo -e "${GREEN}$2 已安裝，跳過${NC}" ;;
+                dep_installing) echo -e "${YELLOW}正在安裝 $2...${NC}" ;;
+                dep_failed) echo -e "${RED}$2 安裝失敗${NC}" ;;
+                dep_success) echo -e "${GREEN}$2 安裝成功${NC}" ;;
+                no_pkgmgr) echo -e "${RED}找不到套件管理器${NC}" ;;
+                downloading) echo -e "${YELLOW}正在下載: $2${NC}" ;;
+                success) echo -e "${GREEN}成功${NC}" ;;
+                failed) echo -e "${RED}失敗: $2${NC}" ;;
+                compiling) echo -e "${GREEN}開始編譯 TreeVisual...${NC}" ;;
+                build_cmake) echo -e "使用 CMake 編譯" ;;
+                build_gxx) echo -e "使用 g++ 編譯" ;;
+                build_success) echo -e "${GREEN}編譯完成: ./$2${NC}" ;;
+                build_failed) echo -e "${RED}編譯失敗${NC}" ;;
+                tree_exists) echo -e "${YELLOW}系統已安裝 tree，重新命名為 $2${NC}" ;;
+                path_exists) echo -e "${GREEN}目錄已在 PATH 中${NC}" ;;
+                path_ask) echo -e "${YELLOW}是否加入 PATH？(Y/n): ${NC}" ;;
+                path_added) echo -e "${GREEN}已加入 PATH 到 $2${NC}" ;;
+                path_skip) echo -e "${YELLOW}跳過 PATH 設定${NC}" ;;
+                path_shell_err) echo -e "${RED}無法識別的 shell: $2${NC}" ;;
+                complete) echo -e "${GREEN}安裝完成！$2${NC}" ;;
+                unsupported) echo -e "${RED}不支援的作業系統: $2${NC}" ;;
             esac
             ;;
         en)
@@ -75,7 +104,7 @@ msg() {
                 build_failed) echo -e "${RED}Build failed${NC}" ;;
                 tree_exists) echo -e "${YELLOW}System has tree, renamed to $2${NC}" ;;
                 path_exists) echo -e "${GREEN}Directory already in PATH${NC}" ;;
-                path_ask) echo -e "${YELLOW}Add to PATH？(y/n): ${NC}" ;;
+                path_ask) echo -e "${YELLOW}Add to PATH？(Y/n): ${NC}" ;;
                 path_added) echo -e "${GREEN}Added PATH to $2${NC}" ;;
                 path_skip) echo -e "${YELLOW}Skipped PATH configuration${NC}" ;;
                 path_shell_err) echo -e "${RED}Unknown shell: $2${NC}" ;;
@@ -184,6 +213,30 @@ download_source() {
     fi
 }
 
+#---------- Download Web Assets ----------
+download_web() {
+    if [[ -d "src/web" ]]; then
+        return 0
+    fi
+    mkdir -p src/web
+
+    local base_url="https://raw.githubusercontent.com/WinTerminal/TreeVisual/main/src/web"
+    local files=("index.html" "styles.css" "app.js" "i18n.js" "webgl.js")
+
+    for f in "${files[@]}"; do
+        msg downloading "$base_url/$f"
+        if command -v curl &>/dev/null; then
+            curl -fsSL "$base_url/$f" -o "src/web/$f"
+        elif command -v wget &>/dev/null; then
+            wget -q "$base_url/$f" -O "src/web/$f"
+        else
+            msg failed "curl/wget"
+            return 1
+        fi
+    done
+    msg success
+}
+
 #---------- Compile ----------
 compile() {
     if command -v tree &>/dev/null; then
@@ -192,6 +245,7 @@ compile() {
     fi
 
     download_source
+    download_web
     msg compiling
 
     # Embed web assets into binary (WebUI fallback)
@@ -225,12 +279,9 @@ compile() {
         exit 1
     fi
 
-    # Copy web assets (for WebUI mode)
-    if [[ -d "src/web" ]]; then
-        mkdir -p "share/treevisual/web"
-        cp -r src/web/* share/treevisual/web/
-        echo "${GREEN}[WebUI]${NC} Assets copied to share/treevisual/web/"
-    fi
+    # Clean up downloaded source and web assets
+    if [[ -f "src/tree.cpp" ]]; then rm -f src/tree.cpp; fi
+    if [[ -d "src/web" ]]; then rm -rf src/web; fi
 }
 
 #---------- Configure PATH ----------
@@ -249,7 +300,7 @@ configure_path() {
     msg path_ask
     read -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ "$REPLY" == "n" ]] || [[ "$REPLY" == "N" ]]; then
         msg path_skip
         return 0
     fi
