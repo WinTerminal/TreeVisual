@@ -673,6 +673,7 @@ function saveSettings() {
       body: JSON.stringify(settings)
     }).catch(function(e) { console.warn("[Settings] Save failed:", e); });
   }, 300);
+  try { localStorage.setItem('treevisual_settings', JSON.stringify(settings)); } catch(e) {}
   applyHWSettings(settings);
 }
 
@@ -791,54 +792,64 @@ function loadSettings() {
     .then(function(r) { return r.json(); })
     .then(function(s) {
       if (!s || !s.showHidden && !s.enableHW && !s.language && !s.fontSize && !s.fontFamily && !s.mode) return;
-      if (s.showHidden !== undefined)
-        document.getElementById("showHidden").checked = s.showHidden;
-      if (s.enableHW !== undefined) {
-        var cb = document.getElementById("enableHW");
-        if (cb) cb.checked = s.enableHW;
-      }
-      if (s.language !== undefined && s.language && typeof setLang === "function")
-        setLang(s.language);
-      if (s.fontSize !== undefined) {
-        var el = document.getElementById("fontSize");
-        if (el) el.value = s.fontSize;
-      }
-      if (s.fontFamily !== undefined) {
-        var el = document.getElementById("fontFamily");
-        if (el) el.value = s.fontFamily;
-      }
-      if (s.theme !== undefined) {
-        var el = document.getElementById("themeSelect");
-        if (el) { el.value = s.theme; toggleCustomColors(s.theme); }
-      }
-      if (s.mode !== undefined) {
-        var el = document.getElementById("modeSelect");
-        if (el) el.value = s.mode;
-      }
-      if (s.colors) {
-        var c = s.colors;
-        if (c.bg) document.getElementById("colorBg").value = c.bg;
-        if (c.text) document.getElementById("colorText").value = c.text;
-        if (c.dir) document.getElementById("colorDir").value = c.dir;
-        if (c.root) document.getElementById("colorRoot").value = c.root;
-      }
-      if (s.animDuration !== undefined) {
-        var el = document.getElementById("animSpeed");
-        if (el) el.value = s.animDuration;
-      }
-      if (s.animEnabled !== undefined) {
-        var el = document.getElementById("animEnabled");
-        if (el) el.checked = s.animEnabled;
-      }
-      if (s.enableJSMode !== undefined) {
-        var jsCb = document.getElementById("enableJSMode");
-        if (jsCb) jsCb.checked = s.enableJSMode;
-      }
-      applyHWSettings(s);
-      restoreHWState();
-      if (typeof toggleJSMode === 'function') toggleJSMode();
+      applyLoadedSettings(s);
     })
-    .catch(function() {});
+    .catch(function() {
+      try {
+        var local = localStorage.getItem('treevisual_settings');
+        if (local) applyLoadedSettings(JSON.parse(local));
+      } catch(e) {}
+    });
+}
+
+function applyLoadedSettings(s) {
+  if (!s) return;
+  if (s.showHidden !== undefined)
+    document.getElementById("showHidden").checked = s.showHidden;
+  if (s.enableHW !== undefined) {
+    var cb = document.getElementById("enableHW");
+    if (cb) cb.checked = s.enableHW;
+  }
+  if (s.language !== undefined && s.language && typeof setLang === "function")
+    setLang(s.language);
+  if (s.fontSize !== undefined) {
+    var el = document.getElementById("fontSize");
+    if (el) el.value = s.fontSize;
+  }
+  if (s.fontFamily !== undefined) {
+    var el = document.getElementById("fontFamily");
+    if (el) el.value = s.fontFamily;
+  }
+  if (s.theme !== undefined) {
+    var el = document.getElementById("themeSelect");
+    if (el) { el.value = s.theme; toggleCustomColors(s.theme); }
+  }
+  if (s.mode !== undefined) {
+    var el = document.getElementById("modeSelect");
+    if (el) el.value = s.mode;
+  }
+  if (s.colors) {
+    var c = s.colors;
+    if (c.bg) document.getElementById("colorBg").value = c.bg;
+    if (c.text) document.getElementById("colorText").value = c.text;
+    if (c.dir) document.getElementById("colorDir").value = c.dir;
+    if (c.root) document.getElementById("colorRoot").value = c.root;
+  }
+  if (s.animDuration !== undefined) {
+    var el = document.getElementById("animSpeed");
+    if (el) el.value = s.animDuration;
+  }
+  if (s.animEnabled !== undefined) {
+    var el = document.getElementById("animEnabled");
+    if (el) el.checked = s.animEnabled;
+  }
+  if (s.enableJSMode !== undefined) {
+    var jsCb = document.getElementById("enableJSMode");
+    if (jsCb) jsCb.checked = s.enableJSMode;
+  }
+  applyHWSettings(s);
+  restoreHWState();
+  if (typeof toggleJSMode === 'function') toggleJSMode();
 }
 
 function restoreHWState() {
@@ -1092,7 +1103,7 @@ if (typeof applyI18n === 'function') {
     
     if (statusEl) {
       statusEl.style.display = _jsModeEnabled ? 'inline-flex' : 'none';
-      statusEl.textContent = _jsModeEnabled ? (currentLang === 'zh' ? ' JS模式' : ' JS Mode') : '';
+      statusEl.textContent = _jsModeEnabled ? (window.getLang && window.getLang() === 'zh' ? ' JS模式' : ' JS Mode') : '';
     }
 
     // Reset directory handle when disabling
