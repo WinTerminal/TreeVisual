@@ -1,7 +1,7 @@
 [![C++17](https://img.shields.io/badge/C++-17-blue?style=flat&logo=c%2B%2B)](https://en.cppreference.com/w/)
 [![MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat)](https://github.com/WinTerminal/TreeVisual)
-[![Version](https://img.shields.io/badge/version-v1.1.3-7aa2f7?style=flat)]()
+[![Version](https://img.shields.io/badge/version-v1.1.4-7aa2f7?style=flat)]()
 [![Release](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml/badge.svg)](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml)
 
 # TreeVisual - Cross-platform Directory Tree Visualizer
@@ -107,6 +107,16 @@ TreeVisual/
 | CI/CD | GitHub Actions (3 platforms) |
 
 ## Changelog
+
+### v1.1.4
+
+9556a5c fix: checkout main before version-sync commit to avoid detached HEAD
+9540921 fix: move waitpid zombie reaping inside #ifndef _WIN32 guard
+e610248 feat: add collapse animation, rename '展开动画'→'动画', optimize easing
+f0de411 fix: service stop zombie/port-bind bugs, improve release workflow
+4fe671e docs: 更新 README 至 v1.1.3 — 三语 i18n、auto release、安装脚本增强
+c00725e fix: 安装脚本兼容 UTF-8 / GBK 终端编码
+80a64ba feat: 安装脚本增强 — 三语支持、web下载、PATH(Y/n)
 
 ### v1.1.3
 - **Auto Release workflow**: Tag push triggers cross-platform build, packaging, and GitHub Release
