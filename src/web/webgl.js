@@ -160,7 +160,8 @@
   function buildLines(json) {
     var out = [], meta = [];
 
-    function walk(node, prefix, isLast, isRoot) {
+    function walk(node, prefix, isLast, isRoot, depth) {
+      var dpt = depth || 0;
       var path = node.path || node.name;
       var isDir = node.type === 'directory' || !!node.hasChildren;
       var cachedKids = _childrenCache[path];
@@ -170,13 +171,13 @@
       if (isRoot) {
         var nm = node.name === '/' ? 'Root' : node.name;
         out.push(nm + (nm[nm.length - 1] !== '/' ? '/' : ''));
-        meta.push({ path: path, isDir: isDir, hasChildren: hasKids, arrowEnd: 0, expanded: false });
+        meta.push({ path: path, isDir: isDir, hasChildren: hasKids, arrowEnd: 0, expanded: false, depth: 0 });
       } else {
         var conn = isLast ? '\u2514\u2500 ' : '\u251c\u2500 ';
         var arr = hasKids ? (expanded ? '\u25bc ' : '\u25b6 ') : '';
         out.push(prefix + conn + arr + node.name + (isDir && node.name[node.name.length - 1] !== '/' ? '/' : ''));
         var arrowEnd = prefix.length + conn.length + (hasKids ? 2 : 0);
-        meta.push({ path: path, isDir: isDir, hasChildren: hasKids, arrowEnd: arrowEnd, expanded: expanded });
+        meta.push({ path: path, isDir: isDir, hasChildren: hasKids, arrowEnd: arrowEnd, expanded: expanded, depth: dpt });
       }
 
       if (expanded) {
@@ -187,19 +188,22 @@
             if (!isRoot) {
               cp = prefix + (isLast ? '    ' : '\u2502   ');
             }
-            walk(kids[i], cp, i === kids.length - 1, false);
+            walk(kids[i], cp, i === kids.length - 1, false, dpt + 1);
           }
         }
       }
     }
-    walk(json, '', true, true);
+    walk(json, '', true, true, 0);
     return { lines: out, meta: meta };
   }
 
   var _animExpandPending = null;
+  var _pendingRebuild = null;
 
   function rebuild() {
     if (_rootData) {
+      if (_pendingRebuild) { clearTimeout(_pendingRebuild.timer); _pendingRebuild = null; }
+
       var oldLen = _lines.length;
       var pending = _animExpandPending;
       _animExpandPending = null;
@@ -211,6 +215,7 @@
 
       if (_animEnabled && pending && _lines.length > oldLen) {
         _animState = {
+          type: 'expand',
           startTime: performance.now(),
           parentIdx: pending.parentIdx,
           count: _lines.length - oldLen,
@@ -256,14 +261,24 @@
       var y = yOff + i * _lineH;
       var alpha = 1;
 
-      if (as && i > as.parentIdx && i <= as.parentIdx + as.count) {
-        var childIdx = i - as.parentIdx - 1;
-        var delay = childIdx * as.stagger;
-        var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
-        p = 1 - (1 - p) * (1 - p); // ease-out quad
-        alpha = p;
-        var startY = yOff + as.parentIdx * _lineH;
-        y = startY + (y - startY) * p;
+      if (as) {
+        if (as.type === 'expand' && i > as.parentIdx && i <= as.parentIdx + as.count) {
+          var childIdx = i - as.parentIdx - 1;
+          var delay = childIdx * as.stagger;
+          var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
+          p = 1 - (1 - p) * (1 - p) * (1 - p); // ease-out cubic
+          alpha = p;
+          var startY = yOff + as.parentIdx * _lineH;
+          y = startY + (y - startY) * p;
+        } else if (as.type === 'collapse' && i > as.parentIdx && i <= as.parentIdx + as.count) {
+          var childIdx = i - as.parentIdx - 1;
+          var delay = childIdx * as.stagger;
+          var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
+          p = 1 - (1 - p) * (1 - p) * (1 - p); // ease-out cubic
+          alpha = 1 - p;
+          var startY = yOff + as.parentIdx * _lineH;
+          y = startY + (y - startY) * (1 - p);
+        }
       }
 
       if (alpha < 1) _ctx.globalAlpha = alpha;
@@ -283,9 +298,10 @@
       var totalTime = as.duration + (as.count - 1) * as.stagger;
       if (now - as.startTime < totalTime) {
         requestAnimationFrame(function() { requestRender(); });
-      } else {
+      } else if (as.type === 'expand') {
         _animState = null;
       }
+      // collapse state cleared by pendingRebuild timer
     }
   }
 
@@ -357,6 +373,36 @@
       if (isArrow) {
         var path = hit.meta.path;
         if (_expanded[path]) {
+          if (_animEnabled) {
+            var parentDepth = hit.meta.depth;
+            var lineCount = 0;
+            for (var ci = hit.idx + 1; ci < _lineMeta.length; ci++) {
+              if (_lineMeta[ci].depth <= parentDepth) break;
+              lineCount++;
+            }
+            if (lineCount > 0) {
+              if (_pendingRebuild) { clearTimeout(_pendingRebuild.timer); _pendingRebuild = null; }
+              _animState = {
+                type: 'collapse',
+                startTime: performance.now(),
+                parentIdx: hit.idx,
+                count: lineCount,
+                duration: _animDuration,
+                stagger: _animStagger
+              };
+              var totalMs = _animDuration + (lineCount - 1) * _animStagger;
+              var capturedPath = path;
+              _pendingRebuild = {
+                timer: setTimeout(function() {
+                  _animState = null;
+                  if (_expanded[capturedPath]) delete _expanded[capturedPath];
+                  rebuild();
+                }, totalMs)
+              };
+              requestRender();
+              return;
+            }
+          }
           delete _expanded[path];
           rebuild();
         } else {
@@ -438,6 +484,7 @@
       if (_resizeObs) { _resizeObs.disconnect(); _resizeObs = null; }
       _lines = []; _lineMeta = []; _rootData = null; _expanded = {}; _childrenCache = {};
       _animState = null; _animExpandPending = null;
+      if (_pendingRebuild) { clearTimeout(_pendingRebuild.timer); _pendingRebuild = null; }
     },
 
     isEnabled: function() { return _enabled; },
@@ -469,8 +516,15 @@
       return {
         fontSize: _fontSize, fontFamily: _fontFamily,
         animDuration: _animDuration, animStagger: _animStagger, animEnabled: _animEnabled,
-        colors: { bg: _colors.bg, text: _colors.text, dir: _colors.dir, root: _colors.root }
+        colors: { bg: _colors.bg, text: _colors.text, dir: _colors.dir, root: _colors.root },
+        lines: _lines.length, expanded: Object.keys(_expanded).length
       };
-    }
+    },
+
+    // Debug accessors
+    _lineMeta: function() { return _lineMeta; },
+    _animState: function() { return _animState; },
+    _pendingRebuild: function() { return !!_pendingRebuild; },
+    _lines: function() { return _lines; }
   };
 })(window);
