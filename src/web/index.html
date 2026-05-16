@@ -114,6 +114,16 @@
         </select>
       </div>
       <div class="setting-item">
+        <label for="enableJSMode">
+          <span data-i18n="jsMode">JS Mode</span>
+          <span class="beta-badge">Beta</span>
+        </label>
+        <input type="checkbox" id="enableJSMode">
+      </div>
+      <div id="jsModeWarning" class="js-mode-warning" style="display:none;">
+        <span>⚠️ <span data-i18n="jsModeWarning">Experimental feature - may have issues. Uses browser File System API.</span></span>
+      </div>
+      <div class="setting-item">
         <span data-i18n="serviceMode" style="flex:1">Service Mode</span>
         <span id="serviceStatusLabel">Off</span>
         <button id="serviceToggleBtn" onclick="toggleService()">Enable</button>
@@ -121,6 +131,7 @@
     </div>
   </div>
   <span id="status"></span>
+  <span id="jsModeStatus" class="js-mode-status" style="display:none;" data-i18n="jsMode">JS Mode</span>
 </div>
 <div class="content" id="treeContainer">
   <!-- Canvas renderer (shown when HW accel is on) -->
@@ -132,8 +143,16 @@
   <div id="treeText" class="init-msg" data-i18n="loadingInit">Enter a path and click Scan to visualize a directory tree.</div>
 </div>
 
-<script src="i18n.js?v=4"></script>
-<script src="app.js?v=4"></script>
-<script src="webgl.js?v=4"></script>
+<!-- Preview Mode Footer -->
+<footer class="preview-footer">
+  <a href="https://github.com/WinTerminal/TreeVisual" target="_blank" rel="noopener noreferrer">
+    https://github.com/WinTerminal/TreeVisual
+  </a>
+  <span>&copy; 2026 WinTerminal. All rights reserved.</span>
+</footer>
+
+<script src="i18n.js?v=5"></script>
+<script src="app.js?v=5"></script>
+<script src="webgl.js?v=5"></script>
 </body>
 </html>
