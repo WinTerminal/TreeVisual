@@ -221,10 +221,139 @@ function scanDirectory() {
       statusEl.textContent = path;
     })
     .catch(function(e) {
-      container.innerHTML = '<div class="error">' + esc(t('errorRequest', { msg: e.message })) + '</div>';
       container.classList.remove('loading');
-      statusEl.textContent = t('statusError');
+      var host = window.location.hostname;
+      if (host === 'winterminal.github.io' || host.endsWith('.github.io')) {
+        // Try to find path in demo tree
+        var demoNode = findDemoNode(path);
+        if (demoNode && demoNode.type === 'directory') {
+          renderTree(demoNode);
+          window._lastTreeData = demoNode;
+          if (window.HWRenderer && window._hwEnabled) {
+            window.HWRenderer.loadTreeData(demoNode);
+          }
+          statusEl.textContent = path + ' (Preview)';
+        } else {
+          container.innerHTML = '<div class="error">Path not found in preview. <a href="javascript:loadDemoTree()">Reload demo tree</a></div>';
+          statusEl.textContent = t('statusError');
+        }
+      } else {
+        container.innerHTML = '<div class="error">' + esc(t('errorRequest', { msg: e.message })) + '</div>';
+        statusEl.textContent = t('statusError');
+      }
     });
+}
+
+// ===== Demo Tree for GitHub Pages Preview =====
+var _demoTree = null;
+
+function findDemoNode(path) {
+  if (!_demoTree) return null;
+
+  var parts = path.replace(/^\/+|\/+$/g, '').split('/');
+  var node = _demoTree;
+
+  if (path === '/' || path === '/DemoProject') return _demoTree;
+
+  // Skip root name check
+  for (var i = 0; i < parts.length; i++) {
+    if (!node || !node.children) return null;
+    if (parts[i] === node.name) continue;
+    var found = false;
+    for (var j = 0; j < node.children.length; j++) {
+      if (node.children[j].name === parts[i]) {
+        node = node.children[j];
+        found = true;
+        break;
+      }
+    }
+    if (!found) return null;
+  }
+  return node;
+}
+
+function loadDemoTree() {
+  _demoTree = {
+    name: 'DemoProject',
+    path: '/DemoProject',
+    type: 'directory',
+    hasChildren: true,
+    children: [
+      {
+        name: 'src',
+        path: '/DemoProject/src',
+        type: 'directory',
+        hasChildren: true,
+        children: [
+          { name: 'main.cpp', path: '/DemoProject/src/main.cpp', type: 'file', hasChildren: false },
+          { name: 'utils.cpp', path: '/DemoProject/src/utils.cpp', type: 'file', hasChildren: false },
+          { name: 'utils.h', path: '/DemoProject/src/utils.h', type: 'file', hasChildren: false },
+          {
+            name: 'components',
+            path: '/DemoProject/src/components',
+            type: 'directory',
+            hasChildren: true,
+            children: [
+              { name: 'App.tsx', path: '/DemoProject/src/components/App.tsx', type: 'file', hasChildren: false },
+              { name: 'Header.tsx', path: '/DemoProject/src/components/Header.tsx', type: 'file', hasChildren: false }
+            ]
+          }
+        ]
+      },
+      {
+        name: 'include',
+        path: '/DemoProject/include',
+        type: 'directory',
+        hasChildren: true,
+        children: [
+          { name: 'api.h', path: '/DemoProject/include/api.h', type: 'file', hasChildren: false },
+          { name: 'config.h', path: '/DemoProject/include/config.h', type: 'file', hasChildren: false }
+        ]
+      },
+      {
+        name: 'tests',
+        path: '/DemoProject/tests',
+        type: 'directory',
+        hasChildren: true,
+        children: [
+          { name: 'test_main.cpp', path: '/DemoProject/tests/test_main.cpp', type: 'file', hasChildren: false },
+          { name: 'test_utils.cpp', path: '/DemoProject/tests/test_utils.cpp', type: 'file', hasChildren: false }
+        ]
+      },
+      {
+        name: 'docs',
+        path: '/DemoProject/docs',
+        type: 'directory',
+        hasChildren: true,
+        children: [
+          { name: 'README.md', path: '/DemoProject/docs/README.md', type: 'file', hasChildren: false },
+          { name: 'architecture.md', path: '/DemoProject/docs/architecture.md', type: 'file', hasChildren: false }
+        ]
+      },
+      {
+        name: 'scripts',
+        path: '/DemoProject/scripts',
+        type: 'directory',
+        hasChildren: true,
+        children: [
+          { name: 'build.sh', path: '/DemoProject/scripts/build.sh', type: 'file', hasChildren: false },
+          { name: 'deploy.sh', path: '/DemoProject/scripts/deploy.sh', type: 'file', hasChildren: false }
+        ]
+      },
+      { name: 'Makefile', path: '/DemoProject/Makefile', type: 'file', hasChildren: false },
+      { name: '.gitignore', path: '/DemoProject/.gitignore', type: 'file', hasChildren: false },
+      { name: 'README.md', path: '/DemoProject/README.md', type: 'file', hasChildren: false }
+    ]
+  };
+
+  pathInput.value = '/DemoProject';
+  currentPath = '/DemoProject';
+  renderTree(_demoTree);
+  window._lastTreeData = _demoTree;
+  if (window.HWRenderer && window._hwEnabled) {
+    window.HWRenderer.loadTreeData(_demoTree);
+  }
+  statusEl.textContent = '/DemoProject (Preview)';
 }
 
 // ===== Tree Rendering =====
@@ -642,6 +771,23 @@ if (typeof applyI18n === 'function') {
 
   // Load saved settings first, then apply i18n (which may override language)
   loadSettings();
+
+  // === GitHub Pages: auto-load demo tree when no backend ===
+  (function checkPreview() {
+    var host = window.location.hostname;
+    if (host === 'winterminal.github.io' || host.endsWith('.github.io')) {
+      // Try API; if it fails, load demo data
+      fetch('/api/tree?path=/').then(function(r) {
+        if (!r.ok) throw new Error();
+        return r.json();
+      }).then(function() {
+        // API works — do nothing
+      }).catch(function() {
+        // API failed — this is likely GitHub Pages
+        loadDemoTree();
+      });
+    }
+  })();
 
   // Language switch handler
   document.getElementById('langSelect').addEventListener('change', function() {
