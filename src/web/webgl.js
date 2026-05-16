@@ -1,581 +1,476 @@
-// ===== TreeVisual WebGL Module (Beta) =====
-// Force-directed graph visualization for directory trees
-
+// ===== TreeVisual HW-Accelerated Character Tree Renderer =====
 (function(global) {
   'use strict';
 
-  // ===== State =====
   var _enabled = false;
-  var _gl = null;
   var _canvas = null;
+  var _ctx = null;
   var _container = null;
   var _tooltipEl = null;
-  var _animId = null;
-  var _nodes = [];
-  var _edges = [];
-  var _rootData = null;
+  var _resizeObs = null;
   var _panX = 0, _panY = 0;
   var _zoom = 1;
   var _dragging = false;
-  var _lastMouseX = 0, _lastMouseY = 0;
-  var _hoveredNode = null;
+  var _lastMX = 0, _lastMY = 0;
   var _navigateCallback = null;
 
-  console.warn('[WebGL] Experimental feature enabled. Performance may vary.');
+  var _rootData = null;
+  var _lines = [];
+  var _lineMeta = [];
+  var _lineH = 20;
 
-  // ===== Vec2 Utility =====
-  function Vec2(x, y) { this.x = x || 0; this.y = y || 0; }
-  Vec2.prototype.add = function(v) { return new Vec2(this.x + v.x, this.y + v.y); };
-  Vec2.prototype.sub = function(v) { return new Vec2(this.x - v.x, this.y - v.y); };
-  Vec2.prototype.mul = function(s) { return new Vec2(this.x * s, this.y * s); };
-  Vec2.prototype.length = function() { return Math.sqrt(this.x * this.x + this.y * this.y); };
-  Vec2.prototype.normalize = function() { var l = this.length(); return l > 0 ? this.mul(1 / l) : new Vec2(0, 0); };
+  var _expanded = {};
+  var _childrenCache = {};
 
-  // ===== Shaders =====
-  var VERT_SHADER_SRC =
-    'attribute vec2 a_pos;' +
-    'attribute vec3 a_color;' +
-    'attribute float a_size;' +
-    'uniform vec2 u_resolution;' +
-    'uniform vec2 u_pan;' +
-    'uniform float u_zoom;' +
-    'varying vec3 v_color;' +
-    'void main() {' +
-      'vec2 pos = (a_pos + u_pan) * u_zoom;' +
-      'vec2 clipPos = (pos / u_resolution) * 2.0 - 1.0;' +
-      'gl_Position = vec4(clipPos * vec2(1, -1), 0, 1);' +
-      'gl_PointSize = a_size * u_zoom;' +
-      'v_color = a_color;' +
-    '}';
+  // Animation state
+  var _animState = null;
 
-  var FRAG_SHADER_SRC =
-    'precision mediump float;' +
-    'varying vec3 v_color;' +
-    'void main() {' +
-      'vec2 coord = gl_PointCoord - vec2(0.5);' +
-      'float dist = length(coord);' +
-      'if (dist > 0.5) discard;' +
-      'float alpha = smoothstep(0.5, 0.35, dist);' +
-      'gl_FragColor = vec4(v_color, alpha);' +
-    '}';
+  // Catppuccin themes
+  var _themes = {
+    mocha:     { bg: '#1a1b2e', text: '#cdd6f4', dir: '#89b4fa', root: '#cba6f7' },
+    macchiato: { bg: '#142b1f', text: '#c8e6c9', dir: '#4caf50', root: '#2e7d32' },
+    frappe:    { bg: '#2a1810', text: '#f5d6b8', dir: '#e67e22', root: '#c0392b' },
+    latte:     { bg: '#1c1917', text: '#e8e8e8', dir: '#60a5fa', root: '#a78bfa' }
+  };
 
-  var LINE_VERT_SHADER_SRC =
-    'attribute vec2 a_pos;' +
-    'attribute vec3 a_color;' +
-    'uniform vec2 u_resolution;' +
-    'uniform vec2 u_pan;' +
-    'uniform float u_zoom;' +
-    'varying vec3 v_color;' +
-    'void main() {' +
-      'vec2 pos = (a_pos + u_pan) * u_zoom;' +
-      'vec2 clipPos = (pos / u_resolution) * 2.0 - 1.0;' +
-      'gl_Position = vec4(clipPos * vec2(1, -1), 0, 1);' +
-      'v_color = a_color;' +
-    '}';
+  var _themesLight = {
+    mocha:     { bg: '#e8e8f2', text: '#2c2c3e', dir: '#4a6cf7', root: '#8b5cf7' },
+    macchiato: { bg: '#e8f5e9', text: '#1b3a1b', dir: '#2e7d32', root: '#1b5e20' },
+    frappe:    { bg: '#fef3e8', text: '#3d2418', dir: '#d97706', root: '#b91c1c' },
+    latte:     { bg: '#f8f5f0', text: '#2c2c2c', dir: '#2563eb', root: '#7c3aed' }
+  };
 
-  var LINE_FRAG_SHADER_SRC =
-    'precision mediump float;' +
-    'varying vec3 v_color;' +
-    'void main() {' +
-      'gl_FragColor = vec4(v_color * 0.6, 0.8);' +
-    '}';
-
-  // ===== Shader Compilation =====
-  function createShader(gl, type, src) {
-    var sh = gl.createShader(type);
-    gl.shaderSource(sh, src);
-    gl.compileShader(sh);
-    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-      console.error('[WebGL] Shader compile error:', gl.getShaderInfoLog(sh));
-      gl.deleteShader(sh);
-      return null;
+  var _cssThemes = {
+    mocha: {
+      '--bg-dark': '#1a1b2e', '--bg-panel': '#151624', '--bg-hover': '#2a2b45',
+      '--border': '#3d3e5c',
+      '--text-primary': '#cdd6f4', '--text-muted': '#a0a8c8',
+      '--accent-blue': '#89b4fa', '--accent-purple': '#cba6f7',
+      '--accent-green': '#a6e3a1', '--accent-red': '#f38ba8', '--accent-yellow': '#f9e2af'
+    },
+    macchiato: {
+      '--bg-dark': '#142b1f', '--bg-panel': '#0f2217', '--bg-hover': '#1e3d2c',
+      '--border': '#2d4f3a',
+      '--text-primary': '#c8e6c9', '--text-muted': '#8fad8f',
+      '--accent-blue': '#4caf50', '--accent-purple': '#2e7d32',
+      '--accent-green': '#66bb6a', '--accent-red': '#e57373', '--accent-yellow': '#ffd54f'
+    },
+    frappe: {
+      '--bg-dark': '#2a1810', '--bg-panel': '#1f110a', '--bg-hover': '#3d2418',
+      '--border': '#52301f',
+      '--text-primary': '#f5d6b8', '--text-muted': '#c49a7a',
+      '--accent-blue': '#e67e22', '--accent-purple': '#c0392b',
+      '--accent-green': '#a8b84a', '--accent-red': '#e74c3c', '--accent-yellow': '#f1c40f'
+    },
+    latte: {
+      '--bg-dark': '#1c1917', '--bg-panel': '#292524', '--bg-hover': '#3d3834',
+      '--border': '#524e49',
+      '--text-primary': '#e8e8e8', '--text-muted': '#a8a29e',
+      '--accent-blue': '#60a5fa', '--accent-purple': '#a78bfa',
+      '--accent-green': '#34d399', '--accent-red': '#fb7185', '--accent-yellow': '#fbbf24'
     }
-    return sh;
+  };
+
+  var _cssThemesLight = {
+    mocha: {
+      '--bg-dark': '#e8e8f2', '--bg-panel': '#dddde8', '--bg-hover': '#d0d0e0',
+      '--border': '#c0c0d0',
+      '--text-primary': '#2c2c3e', '--text-muted': '#6c6c8a',
+      '--accent-blue': '#4a6cf7', '--accent-purple': '#8b5cf7',
+      '--accent-green': '#22c55e', '--accent-red': '#ef4444', '--accent-yellow': '#eab308'
+    },
+    macchiato: {
+      '--bg-dark': '#e8f5e9', '--bg-panel': '#dcefdc', '--bg-hover': '#c8e6c9',
+      '--border': '#a5d6a7',
+      '--text-primary': '#1b3a1b', '--text-muted': '#558b55',
+      '--accent-blue': '#2e7d32', '--accent-purple': '#1b5e20',
+      '--accent-green': '#43a047', '--accent-red': '#e57373', '--accent-yellow': '#fdd835'
+    },
+    frappe: {
+      '--bg-dark': '#fef3e8', '--bg-panel': '#f5e6d4', '--bg-hover': '#edd9bf',
+      '--border': '#dcc4a8',
+      '--text-primary': '#3d2418', '--text-muted': '#8c6d56',
+      '--accent-blue': '#d97706', '--accent-purple': '#b91c1c',
+      '--accent-green': '#84cc16', '--accent-red': '#ef4444', '--accent-yellow': '#f59e0b'
+    },
+    latte: {
+      '--bg-dark': '#f8f5f0', '--bg-panel': '#ece7e0', '--bg-hover': '#ddd8d0',
+      '--border': '#c5c0b8',
+      '--text-primary': '#2c2c2c', '--text-muted': '#707070',
+      '--accent-blue': '#2563eb', '--accent-purple': '#7c3aed',
+      '--accent-green': '#16a34a', '--accent-red': '#dc2626', '--accent-yellow': '#ca8a04'
+    }
+  };
+
+  // Settings (defaults)
+  var _fontSize = 14;
+  var _fontFamily = '"Cascadia Code","Fira Code","JetBrains Mono",monospace';
+  var _animDuration = 200;
+  var _animStagger = 30;
+  var _animEnabled = true;
+  var _colors = Object.assign({}, _themes.mocha);
+
+  // ===== Lazy-load children from API =====
+  function apiTreeUrl(path) {
+    return '/api/tree?path=' + encodeURIComponent(path);
   }
 
-  function createProgram(gl, vsSrc, fsSrc) {
-    var vs = createShader(gl, gl.VERTEX_SHADER, vsSrc);
-    var fs = createShader(gl, gl.FRAGMENT_SHADER, fsSrc);
-    if (!vs || !fs) return null;
-    var prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      console.error('[WebGL] Program link error:', gl.getProgramInfoLog(prog));
-      return null;
+  function ensureChildren(path, callback) {
+    var node = findNode(_rootData, path);
+    if (node && node.children && node.children.length > 0) {
+      callback(node.children); return;
     }
-    return prog;
+    if (_childrenCache[path] !== undefined) {
+      callback(_childrenCache[path]); return;
+    }
+    fetch(apiTreeUrl(path))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var kids = (data && data.children) ? data.children : [];
+        _childrenCache[path] = kids;
+        callback(kids);
+      })
+      .catch(function() {
+        _childrenCache[path] = [];
+        callback([]);
+      });
   }
 
-  // ===== WebGL Renderer Class =====
-  function WebGLRenderer(canvas) {
-    this.canvas = canvas;
-    this.gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (!this.gl) throw new Error('WebGL not supported');
-
-    var gl = this.gl;
-
-    // Programs
-    this.nodeProg = createProgram(gl, VERT_SHADER_SRC, FRAG_SHADER_SRC);
-    this.lineProg = createProgram(gl, LINE_VERT_SHADER_SRC, LINE_FRAG_SHADER_SRC);
-
-    // Node program locations
-    this.nodeLocs = {
-      pos: gl.getAttribLocation(this.nodeProg, 'a_pos'),
-      color: gl.getAttribLocation(this.nodeProg, 'a_color'),
-      size: gl.getAttribLocation(this.nodeProg, 'a_size'),
-      resolution: gl.getUniformLocation(this.nodeProg, 'u_resolution'),
-      pan: gl.getUniformLocation(this.nodeProg, 'u_pan'),
-      zoom: gl.getUniformLocation(this.nodeProg, 'u_zoom')
-    };
-
-    // Line program locations
-    this.lineLocs = {
-      pos: gl.getAttribLocation(this.lineProg, 'a_pos'),
-      color: gl.getAttribLocation(this.lineProg, 'a_color'),
-      resolution: gl.getUniformLocation(this.lineProg, 'u_resolution'),
-      pan: gl.getUniformLocation(this.lineProg, 'u_pan'),
-      zoom: gl.getUniformLocation(this.lineProg, 'u_zoom')
-    };
-
-    // Buffers
-    this.nodeBuffer = gl.createBuffer();
-    this.nodeColorBuffer = gl.createBuffer();
-    this.nodeSizeBuffer = gl.createBuffer();
-    this.lineBuffer = gl.createBuffer();
-    this.lineColorBuffer = gl.createBuffer();
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-    return this;
-  }
-
-  WebGLRenderer.prototype.resize = function() {
-    var c = this.canvas;
-    c.width = c.clientWidth * window.devicePixelRatio;
-    c.height = c.clientHeight * window.devicePixelRatio;
-    this.viewportW = c.width;
-    this.viewportH = c.height;
-    this.centerX = c.width / 2;
-    this.centerY = c.height / 2;
-  };
-
-  WebGLRenderer.prototype.clear = function(color) {
-    var gl = this.gl;
-    gl.viewport(0, 0, this.viewportW, this.viewportH);
-    gl.clearColor(color[0], color[1], color[2], 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-  };
-
-  WebGLRenderer.prototype.drawNodes = function(nodes) {
-    if (!nodes.length) return;
-    var gl = this.gl;
-
-    var positions = [];
-    var colors = [];
-    var sizes = [];
-
-    for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      positions.push(n.x, n.y);
-      colors.push(n.r, n.g, n.b);
-      sizes.push(n.size || 8);
-    }
-
-    gl.useProgram(this.nodeProg);
-    gl.uniform2f(this.nodeLocs.resolution, this.viewportW, this.viewportH);
-    gl.uniform2f(this.nodeLocs.pan, _panX, _panY);
-    gl.uniform1f(this.nodeLocs.zoom, _zoom);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.nodeBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(this.nodeLocs.pos);
-    gl.vertexAttribPointer(this.nodeLocs.pos, 2, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.nodeColorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(this.nodeLocs.color);
-    gl.vertexAttribPointer(this.nodeLocs.color, 3, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.nodeSizeBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sizes), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(this.nodeLocs.size);
-    gl.vertexAttribPointer(this.nodeLocs.size, 1, gl.FLOAT, false, 0, 0);
-
-    gl.drawArrays(gl.POINTS, 0, nodes.length);
-  };
-
-  WebGLRenderer.prototype.drawLines = function(edges) {
-    if (!edges.length) return;
-    var gl = this.gl;
-
-    var positions = [];
-    var colors = [];
-
-    for (var i = 0; i < edges.length; i++) {
-      var e = edges[i];
-      positions.push(e.x1, e.y1, e.x2, e.y2);
-      colors.push(e.r, e.g, e.b, e.r, e.g, e.b);
-    }
-
-    gl.useProgram(this.lineProg);
-    gl.uniform2f(this.lineLocs.resolution, this.viewportW, this.viewportH);
-    gl.uniform2f(this.lineLocs.pan, _panX, _panY);
-    gl.uniform1f(this.lineLocs.zoom, _zoom);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(this.lineLocs.pos);
-    gl.vertexAttribPointer(this.lineLocs.pos, 2, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineColorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(this.lineLocs.color);
-    gl.vertexAttribPointer(this.lineLocs.color, 3, gl.FLOAT, false, 0, 0);
-
-    gl.drawArrays(gl.LINES, 0, edges.length * 2);
-  };
-
-  // ===== Graph Data Structure =====
-  function buildGraphFromJSON(json, parentX, parentY, depth) {
-    var nodes = [];
-    var edges = [];
-
-    if (!json) return { nodes: nodes, edges: edges };
-
-    var isRoot = depth === undefined;
-    depth = depth || 0;
-    parentX = parentX !== undefined ? parentX : 0;
-    parentY = parentY !== undefined ? parentY : 0;
-
-    // Root node
-    var rootX = isRoot ? 0 : parentX + (Math.random() - 0.5) * 150;
-    var rootY = isRoot ? 0 : parentY + (Math.random() - 0.5) * 150 + 60;
-
-    var isDir = json.type === 'directory';
-    nodes.push({
-      id: json.path || json.name,
-      label: json.name,
-      type: json.type,
-      path: json.path,
-      x: rootX,
-      y: rootY,
-      vx: 0, vy: 0,
-      r: isDir ? 0.48 : 0.62,
-      g: isDir ? 0.64 : 0.81,
-      b: 0.97,
-      size: isDir ? 12 : 7,
-      hasChildren: !!json.hasChildren,
-      children: json.children || []
-    });
-
-    // Children
-    if (json.children) {
-      var childCount = json.children.length;
-      for (var i = 0; i < childCount && i < 200; i++) {
-        var angle = (i / childCount) * Math.PI * 2;
-        var dist = 80 + Math.random() * 40;
-        var cx = rootX + Math.cos(angle) * dist;
-        var cy = rootY + Math.sin(angle) * dist;
-        var child = json.children[i];
-        var cIsDir = child.type === 'directory';
-
-        nodes.push({
-          id: child.path || child.name,
-          label: child.name,
-          type: child.type,
-          path: child.path,
-          x: cx,
-          y: cy,
-          vx: 0, vy: 0,
-          r: cIsDir ? 0.48 : 0.62,
-          g: cIsDir ? 0.64 : 0.81,
-          b: 0.97,
-          size: cIsDir ? 9 : 5,
-          hasChildren: !!child.hasChildren
-        });
-
+  function findNode(node, targetPath) {
+    if (!node) return null;
+    var p = node.path || node.name;
+    if (p === targetPath) return node;
+    var kids = getNodeChildren(p, node);
+    if (kids) {
+      for (var i = 0; i < kids.length; i++) {
+        var found = findNode(kids[i], targetPath);
+        if (found) return found;
       }
-    }
-
-    return { nodes: nodes, edges: edges };
-  }
-
-  // ===== Physics Simulation =====
-  function simulateStep() {
-    if (!_nodes.length) return;
-
-    var kRepel = 800;   // Repulsion constant
-    var kAttract = 0.03; // Attraction constant
-    var damping = 0.85;  // Velocity damping
-
-    // Repulsion between all pairs
-    for (var i = 0; i < _nodes.length; i++) {
-      for (var j = i + 1; j < _nodes.length; j++) {
-        var ni = _nodes[i], nj = _nodes[j];
-        var dx = nj.x - ni.x;
-        var dy = nj.y - ni.y;
-        var d2 = dx * dx + dy * dy;
-        if (d2 < 1) d2 = 1;
-        var f = kRepel / d2;
-        var fx = dx * f, fy = dy * f;
-        ni.vx -= fx; ni.vy -= fy;
-        nj.vx += fx; nj.vy += fy;
-      }
-    }
-
-    // Edge attraction
-    for (var e = 0; e < _edges.length; e++) {
-      var edge = _edges[e];
-      var n1 = findNode(edge.srcId);
-      var n2 = findNode(edge.tgtId);
-      if (!n1 || !n2) continue;
-
-      var edx = n2.x - n1.x;
-      var edy = n2.y - n1.y;
-      n1.vx += edx * kAttract;
-      n1.vy += edy * kAttract;
-      n2.vx -= edx * kAttract;
-      n2.vy -= edy * kAttract;
-    }
-
-    // Center gravity
-    for (var m = 0; m < _nodes.length; m++) {
-      var nm = _nodes[m];
-      nm.vx -= nm.x * 0.005;
-      nm.vy -= nm.y * 0.005;
-    }
-
-    // Update positions
-    for (var p = 0; p < _nodes.length; p++) {
-      var np = _nodes[p];
-      np.vx *= damping;
-      np.vy *= damping;
-      np.x += np.vx;
-      np.y += np.vy;
-    }
-  }
-
-  function findNode(id) {
-    for (var i = 0; i < _nodes.length; i++) {
-      if (_nodes[i].id === id) return _nodes[i];
     }
     return null;
   }
 
-  // ===== Render Loop =====
-  function renderLoop() {
-    if (!_enabled || !_renderer) return;
-
-    simulateStep();
-    simulateStep();
-
-    _renderer.resize();
-
-    // Build draw arrays
-    var drawNodes = [];
-    for (var i = 0; i < _nodes.length; i++) {
-      var n = _nodes[i];
-      drawNodes.push({
-        x: n.x + _renderer.centerX,
-        y: n.y + _renderer.centerY,
-        r: n.r, g: n.g, b: n.b,
-        size: n.size
-      });
-    }
-
-    var drawEdges = [];
-    for (var j = 0; j < _edges.length; j++) {
-      var ed = _edges[j];
-      var sN = findNode(ed.srcId);
-      var tN = findNode(ed.tgtId);
-      if (sN && tN) {
-        drawEdges.push({
-          x1: sN.x + _renderer.centerX, y1: sN.y + _renderer.centerY,
-          x2: tN.x + _renderer.centerX, y2: tN.y + _renderer.centerY,
-          r: ed.r, g: ed.g, b: ed.b
-        });
-      }
-    }
-
-    _renderer.clear([0.106, 0.107, 0.149]); // --bg-dark
-    _renderer.drawLines(drawEdges);
-    _renderer.drawNodes(drawNodes);
-
-    _animId = requestAnimationFrame(renderLoop);
+  function getNodeChildren(path, node) {
+    if (node && node.children && node.children.length > 0) return node.children;
+    if (_childrenCache[path] !== undefined) return _childrenCache[path];
+    return null;
   }
 
-  // ===== Mouse Interaction =====
+  // ===== Build visible lines =====
+  function buildLines(json) {
+    var out = [], meta = [];
+
+    function walk(node, prefix, isLast, isRoot) {
+      var path = node.path || node.name;
+      var isDir = node.type === 'directory' || !!node.hasChildren;
+      var cachedKids = _childrenCache[path];
+      var hasKids = !!(node.children && node.children.length > 0) || !!node.hasChildren || !!(cachedKids && cachedKids.length > 0);
+      var expanded = !!_expanded[path];
+
+      if (isRoot) {
+        var nm = node.name === '/' ? 'Root' : node.name;
+        out.push(nm + (nm[nm.length - 1] !== '/' ? '/' : ''));
+        meta.push({ path: path, isDir: isDir, hasChildren: hasKids, arrowEnd: 0, expanded: false });
+      } else {
+        var conn = isLast ? '\u2514\u2500 ' : '\u251c\u2500 ';
+        var arr = hasKids ? (expanded ? '\u25bc ' : '\u25b6 ') : '';
+        out.push(prefix + conn + arr + node.name + (isDir && node.name[node.name.length - 1] !== '/' ? '/' : ''));
+        var arrowEnd = prefix.length + conn.length + (hasKids ? 2 : 0);
+        meta.push({ path: path, isDir: isDir, hasChildren: hasKids, arrowEnd: arrowEnd, expanded: expanded });
+      }
+
+      if (expanded) {
+        var kids = getNodeChildren(path, node);
+        if (kids) {
+          for (var i = 0; i < kids.length && i < 300; i++) {
+            var cp = prefix;
+            if (!isRoot) {
+              cp = prefix + (isLast ? '    ' : '\u2502   ');
+            }
+            walk(kids[i], cp, i === kids.length - 1, false);
+          }
+        }
+      }
+    }
+    walk(json, '', true, true);
+    return { lines: out, meta: meta };
+  }
+
+  var _animExpandPending = null;
+
+  function rebuild() {
+    if (_rootData) {
+      var oldLen = _lines.length;
+      var pending = _animExpandPending;
+      _animExpandPending = null;
+
+      var tree = buildLines(_rootData);
+      _lines = tree.lines;
+      _lineMeta = tree.meta;
+      clampPanY();
+
+      if (_animEnabled && pending && _lines.length > oldLen) {
+        _animState = {
+          startTime: performance.now(),
+          parentIdx: pending.parentIdx,
+          count: _lines.length - oldLen,
+          duration: _animDuration,
+          stagger: _animStagger
+        };
+      }
+      requestRender();
+    }
+  }
+
+  // ===== Rendering =====
+  function renderFrame() {
+    if (!_enabled || !_ctx) return;
+    console.log('[renderFrame] bg=' + _colors.bg + ' text=' + _colors.text + ' lines=' + _lines.length);
+
+    var c = _canvas;
+    var cw = c.clientWidth || c.parentElement.clientWidth || 1;
+    var ch = c.clientHeight || c.parentElement.clientHeight || 1;
+    var dpr = window.devicePixelRatio || 1;
+
+    if (c.width !== Math.round(cw * dpr) || c.height !== Math.round(ch * dpr)) {
+      c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr);
+    }
+
+    _ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    _ctx.fillStyle = _colors.bg;
+    _ctx.fillRect(0, 0, cw, ch);
+
+    _ctx.setTransform(dpr, 0, 0, dpr, _panX * dpr, _panY * dpr);
+    _ctx.scale(_zoom, _zoom);
+
+    _ctx.font = _fontSize + 'px ' + _fontFamily;
+    _ctx.textBaseline = 'top';
+
+    var yOff = 6;
+    var as = _animState;
+    var now = as ? performance.now() : 0;
+
+    for (var i = 0; i < _lines.length; i++) {
+      var text = _lines[i];
+      var m = _lineMeta[i];
+      var y = yOff + i * _lineH;
+      var alpha = 1;
+
+      if (as && i > as.parentIdx && i <= as.parentIdx + as.count) {
+        var childIdx = i - as.parentIdx - 1;
+        var delay = childIdx * as.stagger;
+        var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
+        p = 1 - (1 - p) * (1 - p); // ease-out quad
+        alpha = p;
+        var startY = yOff + as.parentIdx * _lineH;
+        y = startY + (y - startY) * p;
+      }
+
+      if (alpha < 1) _ctx.globalAlpha = alpha;
+
+      if (i === 0) {
+        _ctx.fillStyle = _colors.root;
+      } else {
+        _ctx.fillStyle = m && m.isDir ? _colors.dir : _colors.text;
+      }
+      _ctx.fillText(text, 4, y);
+
+      if (alpha < 1) _ctx.globalAlpha = 1;
+    }
+
+    // Continue animation
+    if (as) {
+      var totalTime = as.duration + (as.count - 1) * as.stagger;
+      if (now - as.startTime < totalTime) {
+        requestAnimationFrame(function() { requestRender(); });
+      } else {
+        _animState = null;
+      }
+    }
+  }
+
+  function requestRender() {
+    requestAnimationFrame(function() {
+      renderFrame();
+    });
+  }
+
+  function clampPanY() {
+    var c = _canvas;
+    var ch = c.clientHeight || c.parentElement.clientHeight || 1;
+    var treeCssH = _zoom * (6 + _lines.length * _lineH + 6);
+    var maxPanY = 6;
+    var minPanY = Math.min(ch - treeCssH - 6, 6);
+    _panY = Math.min(maxPanY, Math.max(minPanY, _panY));
+  }
+
+  // ===== Mouse =====
+  function hitTest(screenX, screenY) {
+    var ty = (screenY - _panY) / _zoom;
+    var idx = Math.floor((ty - 6) / _lineH);
+    if (idx >= 0 && idx < _lineMeta.length) {
+      return { idx: idx, meta: _lineMeta[idx] };
+    }
+    return null;
+  }
+
   function handleMouseMove(e) {
     var rect = _canvas.getBoundingClientRect();
     var mx = e.clientX - rect.left;
     var my = e.clientY - rect.top;
 
     if (_dragging) {
-      _panX += (e.clientX - _lastMouseX) / _zoom;
-      _panY += (e.clientY - _lastMouseY) / _zoom;
-      _lastMouseX = e.clientX;
-      _lastMouseY = e.clientY;
+      _panX += (e.clientX - _lastMX) / _zoom;
+      _panY += (e.clientY - _lastMY) / _zoom;
+      _lastMX = e.clientX; _lastMY = e.clientY;
+      requestRender();
       return;
     }
 
-    // Hit test
-    var found = null;
-    var cx = (_canvas.width / window.devicePixelRatio) / 2;
-    var cy = (_canvas.height / window.devicePixelRatio) / 2;
-    for (var i = 0; i < _nodes.length; i++) {
-      var n = _nodes[i];
-      var nx = (n.x + cx + _panX) * _zoom;
-      var ny = (n.y + cy + _panY) * _zoom;
-      var dist = Math.sqrt((mx - nx) * (mx - nx) + (my - ny) * (my - ny));
-      if (dist < (n.size || 8) * _zoom + 4) {
-        found = n;
-        break;
-      }
-    }
-
-    if (found !== _hoveredNode) {
-      _hoveredNode = found;
-      if (found && _tooltipEl) {
-        _tooltipEl.textContent = found.path || found.label;
-        _tooltipEl.style.display = 'block';
-        _tooltipEl.style.left = (mx + 10) + 'px';
-        _tooltipEl.style.top = (my + 10) + 'px';
-      } else if (_tooltipEl) {
-        _tooltipEl.style.display = 'none';
-      }
-    } else if (found && _tooltipEl) {
-      _tooltipEl.style.left = (mx + 10) + 'px';
-      _tooltipEl.style.top = (my + 10) + 'px';
+    var hit = hitTest(mx, my);
+    if (hit && hit.meta && hit.meta.isDir && _tooltipEl) {
+      _tooltipEl.textContent = hit.meta.path;
+      _tooltipEl.style.display = 'block';
+      _tooltipEl.style.left = (mx + 12) + 'px';
+      _tooltipEl.style.top = (my + 12) + 'px';
+    } else if (_tooltipEl) {
+      _tooltipEl.style.display = 'none';
     }
   }
 
   function handleMouseDown(e) {
-    if (_hoveredNode && _hoveredNode.hasChildren) {
-      // Click on directory node -> navigate
-      if (_navigateCallback) {
-        _navigateCallback(_hoveredNode.path || '');
+    _ctx.font = _fontSize + 'px ' + _fontFamily;
+    var rect = _canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    var hit = hitTest(mx, my);
+
+    if (hit && hit.meta && hit.meta.isDir) {
+      var tx = (mx - _panX) / _zoom;
+      var isArrow = false;
+      if (hit.meta.hasChildren && hit.meta.arrowEnd > 0) {
+        var lineText = _lines[hit.idx];
+        var prefixWidth = _ctx.measureText(lineText.substring(0, hit.meta.arrowEnd)).width;
+        isArrow = (tx < 4 + prefixWidth);
       }
-      return;
+
+      if (isArrow) {
+        var path = hit.meta.path;
+        if (_expanded[path]) {
+          delete _expanded[path];
+          rebuild();
+        } else {
+          _expanded[path] = true;
+          _animExpandPending = { parentIdx: hit.idx };
+          ensureChildren(path, function() { rebuild(); });
+        }
+        return;
+      }
+
+      if (_navigateCallback) {
+        _navigateCallback(hit.meta.path);
+        return;
+      }
     }
+
     _dragging = true;
-    _lastMouseX = e.clientX;
-    _lastMouseY = e.clientY;
+    _lastMX = e.clientX; _lastMY = e.clientY;
   }
 
-  function handleMouseUp() {
-    _dragging = false;
-  }
+  function handleMouseUp() { _dragging = false; }
 
   function handleWheel(e) {
     e.preventDefault();
-    var delta = e.deltaY > 0 ? 0.9 : 1.1;
-    _zoom *= delta;
-    _zoom = Math.max(0.1, Math.min(10, _zoom));
+    _panY -= e.deltaY;
+    clampPanY();
+    requestRender();
   }
 
   // ===== Public API =====
-  global.WebGLRenderer = {
+  global.HWRenderer = {
+    _initialized: false,
+    _cssThemes: _cssThemes,
+    _cssThemesLight: _cssThemesLight,
+
     init: function() {
+      if (this._initialized) return true;
       try {
-        _canvas = document.getElementById('webglCanvas');
+        _canvas = document.getElementById('hwCanvas');
         if (!_canvas) return false;
-        
-        _container = document.getElementById('webglContainer');
-        _tooltipEl = document.getElementById('webglTooltip');
-        _warningEl = document.getElementById('webglWarning');
-        
-        _renderer = new WebGLRenderer(_canvas);
-        
-        // Event listeners
+        _ctx = _canvas.getContext('2d');
+        if (!_ctx) return false;
+        _container = document.getElementById('hwContainer');
+        _tooltipEl = document.getElementById('hwTooltip');
         _canvas.addEventListener('mousemove', handleMouseMove);
         _canvas.addEventListener('mousedown', handleMouseDown);
         _canvas.addEventListener('mouseup', handleMouseUp);
-        _canvas.addEventListener('mouseleave', function() { _dragging = false; if(_tooltipEl)_tooltipEl.style.display='none'; _hoveredNode=null; });
+        _canvas.addEventListener('mouseleave', function() { _dragging = false; if(_tooltipEl)_tooltipEl.style.display='none'; });
         _canvas.addEventListener('wheel', handleWheel, { passive: false });
-
-        if (_warningEl) {
-          _warningEl.addEventListener('click', function() {
-            _warningEl.classList.remove('show');
-          });
-        }
-
+        _resizeObs = new ResizeObserver(function() { requestRender(); });
+        _resizeObs.observe(_canvas);
+        this._initialized = true;
         return true;
-      } catch (err) {
-        console.error('[WebGL] Init failed:', err.message);
-        return false;
-      }
-    },
-
-    enable: function(navigateFn) {
-      _navigateCallback = navigateFn || null;
-      
-      if (!_renderer) {
-        if (!this.init()) {
-          alert(window.t ? t('errorRequest', { msg: 'WebGL initialization failed' }) : 'WebGL init failed');
-          return false;
-        }
-      }
-
-      _enabled = true;
-      global._webglEnabled = true;
-
-      if (_container) _container.classList.add('active');
-      if (_warningEl) _warningEl.classList.add('show');
-
-      if (_rootData) this.loadTreeData(_rootData);
-
-      renderLoop();
-      return true;
-    },
-
-    disable: function() {
-      _enabled = false;
-      global._webglEnabled = false;
-
-      if (_animId) cancelAnimationFrame(_animId);
-      if (_container) _container.classList.remove('active');
-      if (_warningEl) _warningEl.classList.remove('show');
-      if (_tooltipEl) _tooltipEl.style.display = 'none';
-
-      _nodes = [];
-      _edges = [];
-      _hoveredNode = null;
-      _rootData = null;
+      } catch(e) { console.error('[HWRenderer] Init failed:', e); return false; }
     },
 
     loadTreeData: function(json) {
       _rootData = json;
+      _childrenCache = {};
       if (!_enabled) return;
-
-      // Reset view
-      _panX = 0;
-      _panY = 0;
-      _zoom = 1;
-
-      var graph = buildGraphFromJSON(json);
-      _nodes = graph.nodes;
-      _edges = [];
-
-      // Store source/target IDs for edges
-      if (json.children) {
-        var rootId = json.path || json.name;
-        for (var i = 0; i < json.children.length && i < 200; i++) {
-          var child = json.children[i];
-          _edges.push({
-            srcId: rootId,
-            tgtId: child.path || child.name,
-            r: 0.35, g: 0.40, b: 0.52
-          });
-        }
-      }
+      _panX = 0; _panY = 0; _zoom = 1;
+      _expanded = {};
+      _expanded[json.path || json.name] = true;
+      rebuild();
     },
 
-    isEnabled: function() {
-      return _enabled;
+    enable: function(navigateFn) {
+      _navigateCallback = navigateFn || null;
+      _enabled = true;
+      global._hwEnabled = true;
+      if (_rootData) this.loadTreeData(_rootData);
+      else if (global._lastTreeData) this.loadTreeData(global._lastTreeData);
+      requestRender();
+    },
+
+    disable: function() {
+      _enabled = false;
+      global._hwEnabled = false;
+      if (_resizeObs) { _resizeObs.disconnect(); _resizeObs = null; }
+      _lines = []; _lineMeta = []; _rootData = null; _expanded = {}; _childrenCache = {};
+      _animState = null; _animExpandPending = null;
+    },
+
+    isEnabled: function() { return _enabled; },
+
+    // Apply settings from user preferences
+    applySettings: function(s) {
+      if (s.fontSize !== undefined) _fontSize = s.fontSize;
+      if (s.animDuration !== undefined) _animDuration = s.animDuration;
+      if (s.animEnabled !== undefined) _animEnabled = s.animEnabled;
+      if (s.fontFamily !== undefined) _fontFamily = s.fontFamily;
+      // Resolve theme
+      if (s.theme !== undefined && s.theme !== 'custom') {
+        var pool = (s.mode === 'light') ? _themesLight : _themes;
+        var tc = pool[s.theme];
+        if (tc) Object.assign(_colors, tc);
+      } else if (s.colors) {
+        if (s.colors.bg !== undefined) _colors.bg = s.colors.bg;
+        if (s.colors.text !== undefined) _colors.text = s.colors.text;
+        if (s.colors.dir !== undefined) _colors.dir = s.colors.dir;
+        if (s.colors.root !== undefined) _colors.root = s.colors.root;
+      }
+      _lineH = Math.round(_fontSize * 1.4);
+      if (_enabled) { clampPanY(); requestRender(); }
+    },
+
+    requestRender: function() { if (_enabled) requestRender(); },
+
+    getState: function() {
+      return {
+        fontSize: _fontSize, fontFamily: _fontFamily,
+        animDuration: _animDuration, animStagger: _animStagger, animEnabled: _animEnabled,
+        colors: { bg: _colors.bg, text: _colors.text, dir: _colors.dir, root: _colors.root }
+      };
     }
   };
-
 })(window);

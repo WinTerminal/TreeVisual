@@ -43,6 +43,7 @@
 #else
     #include <unistd.h>
     #include <sys/types.h>
+    #include <sys/wait.h>
     #include <pwd.h>
     #include <cstdlib>
     #include <sys/socket.h>
@@ -821,10 +822,11 @@ static std::string dirTreeToJson(const fs::path& dir, bool show_hidden) {
         else
             files.push_back(entry);
     }
+    bool hasKids = !files.empty() || !subdirs.empty();
     std::string json = "{\"name\":\"";
     std::string dirName = dir.filename().string();
     if (dirName.empty()) dirName = dir.string();
-    json += jsonEscape(dirName) + "\",\"type\":\"directory\",\"path\":\"" + jsonEscape(dir.string()) + "\",\"children\":[";
+    json += jsonEscape(dirName) + "\",\"type\":\"directory\",\"path\":\"" + jsonEscape(dir.string()) + "\",\"hasChildren\":" + (hasKids ? "true" : "false") + ",\"children\":[";
     bool first = true;
     for (const auto& entry : files) {
         if (!first) json += ",";
@@ -896,7 +898,7 @@ public:
     static std::string pidFilePath() { return configDir() + "/tree.pid"; }
     static std::string settingsFilePath() { return configDir() + "/settings.json"; }
 
-    // Check if service is currently running (PID file exists + process alive)
+    // Check if service is currently running (PID file exists + process alive, not zombie)
     static bool isRunning() {
         auto pid = readPid();
         if (pid <= 0) return false;
@@ -905,7 +907,24 @@ public:
         if (h) { CloseHandle(h); return true; }
         return false;
 #else
-        return (kill((pid_t)pid, 0) == 0);
+        // kill(pid,0) returns 0 for zombies too, so check /proc for actual state
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%d/status", (int)pid);
+        FILE* f = fopen(path, "r");
+        if (!f) return false;
+        char line[128];
+        bool alive = false;
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "State:", 6) == 0) {
+                for (int i = 7; line[i]; ++i) {
+                    if (line[i] == 'Z' || line[i] == 'z') break;
+                    if (isalpha((unsigned char)line[i])) { alive = true; break; }
+                }
+                break;
+            }
+        }
+        fclose(f);
+        return alive;
 #endif
     }
 
@@ -924,6 +943,13 @@ public:
         HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
         if (h) { TerminateProcess(h, 0); CloseHandle(h); }
 #else
+        // If we're the daemon ourselves, don't kill — just clean up and exit
+        if ((pid_t)pid == getpid()) {
+            removePid();
+            std::cout << " self-stopped.\n";
+            _exit(0);
+            return true;
+        }
         kill((pid_t)pid, SIGTERM);
         // Wait up to 5 seconds for graceful shutdown
         for (int i = 0; i < 50; ++i) {
@@ -936,6 +962,8 @@ public:
 #endif
         removePid();
         std::cout << " stopped.\n";
+        // Reap any remaining zombie child
+        while (waitpid((pid_t)-1, nullptr, WNOHANG) > 0) {}
         return true;
     }
 
@@ -973,16 +1001,6 @@ public:
         return true;
     }
 
-private:
-    static PidType readPid() {
-        std::ifstream ifs(pidFilePath());
-        if (!ifs.is_open()) return (PidType)-1;
-        PidType pid;
-        ifs >> pid;
-        ifs.close();
-        return pid;
-    }
-
     static void writePid(PidType pid) {
         std::ofstream ofs(pidFilePath());
         ofs << pid << "\n";
@@ -991,6 +1009,16 @@ private:
 
     static void removePid() {
         std::remove(pidFilePath().c_str());
+    }
+
+private:
+    static PidType readPid() {
+        std::ifstream ifs(pidFilePath());
+        if (!ifs.is_open()) return (PidType)-1;
+        PidType pid;
+        ifs >> pid;
+        ifs.close();
+        return pid;
     }
 
 #ifdef _WIN32
@@ -1026,6 +1054,10 @@ public:
         int opt = 1;
         setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR,
                     reinterpret_cast<const char*>(&opt), sizeof(opt));
+#ifdef SO_REUSEPORT
+        setsockopt(server_fd_, SOL_SOCKET, SO_REUSEPORT,
+                    reinterpret_cast<const char*>(&opt), sizeof(opt));
+#endif
 
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
@@ -1330,6 +1362,8 @@ private:
     void handleApiTree(int fd, const std::string& query) {
         std::string pathStr = getQueryParam(query, "path");
         if (pathStr.empty()) pathStr = fs::current_path().string();
+        while (pathStr.size() > 1 && (pathStr.back() == '/' || pathStr.back() == '\\'))
+            pathStr.pop_back();
         bool showHidden = (getQueryParam(query, "show_hidden") == "true");
 
         fs::path target(pathStr);
@@ -1347,6 +1381,8 @@ private:
     void handleApiList(int fd, const std::string& query) {
         std::string pathStr = getQueryParam(query, "path");
         if (pathStr.empty()) pathStr = fs::current_path().string();
+        while (pathStr.size() > 1 && (pathStr.back() == '/' || pathStr.back() == '\\'))
+            pathStr.pop_back();
         bool showHidden = (getQueryParam(query, "show_hidden") == "true");
 
         fs::path target(pathStr);
@@ -1407,17 +1443,40 @@ private:
     }
 
     void handleApiServiceStart(int fd) {
-        bool ok = ServiceManager::start(7200);
+#ifdef _WIN32
+        bool ok = ServiceManager::start(port_);
         std::string json = "{\"success\":" + std::string(ok ? "true" : "false")
                          + ",\"message\":\"" + (ok ? "Started" : "Failed to start") + "\"}";
         sendResponse(fd, 200, "application/json", json);
+#else
+        // Fork a child that becomes the service daemon;
+        // the parent (current web server) keeps running so we can respond.
+        pid_t pid = fork();
+        if (pid < 0) {
+            sendResponse(fd, 200, "application/json", "{\"success\":false,\"message\":\"Fork failed\"}");
+            return;
+        }
+        if (pid > 0) {
+            // Parent: write PID so status API can find it, then respond
+            ServiceManager::writePid(pid);
+            std::cout << "[Service] Started in background (PID: " << pid << ")\n";
+            sendResponse(fd, 200, "application/json", "{\"success\":true,\"message\":\"Started\"}");
+            return;
+        }
+        // Child: become session leader, start independent WebServer
+        setsid();
+        // Close inherited listen socket so we can bind fresh
+        closeSocket(server_fd_);
+        WebServer svc(port_);
+        svc.start();
+        _exit(0);
+#endif
     }
 
     void handleApiServiceStop(int fd) {
-        bool ok = ServiceManager::stop();
-        std::string json = "{\"success\":" + std::string(ok ? "true" : "false")
-                         + ",\"message\":\"" + (ok ? "Stopped" : "No instance running") + "\"}";
-        sendResponse(fd, 200, "application/json", json);
+        sendResponse(fd, 200, "application/json",
+            "{\"success\":true,\"message\":\"Stopped\"}");
+        ServiceManager::stop();
     }
 
     static std::string getWebUIHtml() {
