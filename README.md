@@ -6,8 +6,9 @@
 
 # TreeVisual - Cross-platform Directory Tree Visualizer
 
-A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree browser). Built in C++17, zero third-party dependencies.  
-[Download latest release](https://github.com/WinTerminal/TreeVisual/releases/latest) | Auto-build on tag push via GitHub Actions.
+A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree browser with Canvas hardware-accelerated rendering). Built in C++17, zero third-party dependencies.  
+[Download latest release](https://github.com/WinTerminal/TreeVisual/releases/latest) | Auto-build on tag push via GitHub Actions.  
+[Live Web Preview](https://winterminal.github.io/TreeVisual/) (static UI)
 
 ## Features
 
@@ -21,10 +22,14 @@ A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree brow
 
 ### WebUI Mode (`--web`)
 - **Lazy-loading tree structure** - Only loads one level at a time; expand directories on demand
-- **i18n support** - English / Simplified Chinese / Traditional Chinese, auto-detects browser language
-- **WebGL rendering (Beta)** - Force-directed graph visualization for directory trees
-- **Settings panel** - Show hidden files, enable WebGL, etc.
-- **Tokyo Night theme** - Responsive design, smooth animations
+- **Canvas 2D HW-accelerated rendering** - Character-based tree with smooth expand/collapse animation, Unicode box drawing
+- **4 themes × 2 modes** (Mocha, Macchiato, Frappé, Latte × Dark/Light) — 8 color schemes
+- **Autocomplete** - Debounced, case-insensitive prefix path suggestions with directories-first sorting
+- **i18n support** - English / Simplified Chinese, auto-detects browser language
+- **Settings panel** - Font size, font family, theme, animation speed, hidden files, service toggle
+- **Expand/collapse animation** — Staggered fade-in/slide for both open and close
+- **Custom colors** - Pick your own background, text, directory, and root colors
+- **GitHub Pages preview** — Static UI available at [winterminal.github.io/TreeVisual](https://winterminal.github.io/TreeVisual/)
 
 ## Quick Start
 
@@ -65,19 +70,21 @@ tree --setting           Open settings panel
 ```
 TreeVisual/
 ├── src/
-│   ├── tree.cpp          # Main source file (~1800 lines)
+│   ├── tree.cpp          # Main source file (~1860 lines)
 │   └── web/              # WebUI static assets
 │       ├── index.html
-│       ├── styles.css    # Tokyo Night theme
-│       ├── app.js        # Core logic (tree render, lazy-load)
-│       ├── i18n.js       # EN/zh-CN/zh-TW dictionary
-│       └── webgl.js      # Force-directed graph renderer (Beta)
+│       ├── styles.css    # 4 Catppuccin-based themes, dark/light modes
+│       ├── app.js        # Core logic (tree render, lazy-load, settings, service)
+│       ├── i18n.js       # EN/zh dictionary
+│       └── webgl.js      # Canvas 2D HW-accelerated character-tree renderer
+├── Preview/              # GitHub Pages deployment copy
 ├── scripts/
 │   └── embed-web.py      # Embeds web/ into tree.cpp at compile time
 ├── packaging/            # Release packaging templates
 ├── .github/workflows/
 │   ├── build.yml         # CI build on push/PR
-│   └── release.yml       # Auto release on tag push (3 platforms)
+│   ├── release.yml       # Auto release on tag push (3 platforms)
+│   └── pages.yml         # Deploy web UI to GitHub Pages
 ├── CMakeLists.txt
 ├── install.sh            # Linux/macOS installer (auto-download + compile)
 └── install.bat           # Windows installer
@@ -89,9 +96,11 @@ TreeVisual/
 |----------|--------|--------|-------------|
 | `/api/tree` | GET | `path`, `show_hidden` | Single-level tree JSON |
 | `/api/list` | GET | `path`, `show_hidden` | Flat directory listing JSON |
-| `/api/settings` | GET/POST | - | Persist settings (showHidden, language, webgl) |
+| `/api/settings` | GET/POST | - | Persist settings (theme, mode, fontSize, etc.) |
 | `/api/home` | GET | - | Returns user home directory path |
 | `/api/service/status` | GET | - | Daemon running status |
+| `/api/service/start` | POST | - | Start daemon in background |
+| `/api/service/stop` | POST | - | Stop running daemon |
 
 ## Tech Stack
 
@@ -102,21 +111,19 @@ TreeVisual/
 | Concurrency | `std::thread`, `std::atomic` |
 | HTTP Server | Raw BSD sockets (zero deps) |
 | Frontend | Vanilla HTML/CSS/JS (no frameworks) |
-| WebGL | WebGL 1.0, GLSL shaders (Beta) |
+| Canvas | Canvas 2D `getContext('2d')` — HW-accelerated character tree |
 | Clipboard | Win32 API / pbcopy / xclip |
 | CI/CD | GitHub Actions (3 platforms) |
 
 ## Changelog
 
 ### v1.1.4
-
-9556a5c fix: checkout main before version-sync commit to avoid detached HEAD
-9540921 fix: move waitpid zombie reaping inside #ifndef _WIN32 guard
-e610248 feat: add collapse animation, rename '展开动画'→'动画', optimize easing
-f0de411 fix: service stop zombie/port-bind bugs, improve release workflow
-4fe671e docs: 更新 README 至 v1.1.3 — 三语 i18n、auto release、安装脚本增强
-c00725e fix: 安装脚本兼容 UTF-8 / GBK 终端编码
-80a64ba feat: 安装脚本增强 — 三语支持、web下载、PATH(Y/n)
+- **Collapse animation** — Expand and collapse both have staggered slide + fade animation
+- **Animation optimization** — Easing changed from easeOutQuad to easeOutCubic; 收起动画全新实现
+- **Service mode fix** — `isRunning()` 正确检测僵尸进程；`stop()` 支持自杀保护；端口共享 `SO_REUSEPORT`
+- **Frontend service toggle fix** — 点击 Stop 后界面及时更新为 Off（catch 处理器处理连接断开）
+- **GitHub Pages preview** — `Preview/` 目录 + `pages.yml` workflow，静态 UI 在线预览
+- **Version auto-sync** — Release workflow 自动更新 `index.html` 和 `README.md` 版本号并推送
 
 ### v1.1.3
 - **Auto Release workflow**: Tag push triggers cross-platform build, packaging, and GitHub Release
