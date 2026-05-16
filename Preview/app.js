@@ -653,7 +653,8 @@ function saveSettings() {
     fontSize: parseInt((document.getElementById("fontSize") || {}).value, 10) || 14,
     fontFamily: (document.getElementById("fontFamily") || {}).value || '"Cascadia Code","Fira Code","JetBrains Mono",monospace',
     animDuration: parseInt((document.getElementById("animSpeed") || {}).value, 10) || 200,
-    animEnabled: document.getElementById("animEnabled") ? document.getElementById("animEnabled").checked : true
+    animEnabled: document.getElementById("animEnabled") ? document.getElementById("animEnabled").checked : true,
+    enableJSMode: document.getElementById("enableJSMode") ? document.getElementById("enableJSMode").checked : false
   };
   if (theme === 'custom') {
     settings.colors = {
@@ -828,8 +829,13 @@ function loadSettings() {
         var el = document.getElementById("animEnabled");
         if (el) el.checked = s.animEnabled;
       }
+      if (s.enableJSMode !== undefined) {
+        var jsCb = document.getElementById("enableJSMode");
+        if (jsCb) jsCb.checked = s.enableJSMode;
+      }
       applyHWSettings(s);
       restoreHWState();
+      if (typeof toggleJSMode === 'function') toggleJSMode();
     })
     .catch(function() {});
 }
@@ -1076,10 +1082,16 @@ if (typeof applyI18n === 'function') {
   function toggleJSMode() {
     var cb = document.getElementById('enableJSMode');
     var warning = document.getElementById('jsModeWarning');
+    var statusEl = document.getElementById('jsModeStatus');
     _jsModeEnabled = cb ? cb.checked : false;
     
     if (warning) {
       warning.style.display = _jsModeEnabled ? 'block' : 'none';
+    }
+    
+    if (statusEl) {
+      statusEl.style.display = _jsModeEnabled ? 'inline-flex' : 'none';
+      statusEl.textContent = _jsModeEnabled ? (currentLang === 'zh' ? ' JS模式' : ' JS Mode') : '';
     }
 
     // Reset directory handle when disabling

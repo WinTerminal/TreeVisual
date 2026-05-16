@@ -382,6 +382,30 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
   line-height:1.4
 }
 
+/* JS Mode Status Indicator */
+.js-mode-status {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 8px;
+  margin-left:12px;
+  font-size:11px;
+  color:var(--accent-blue);
+  background:rgba(137,180,250,0.1);
+  border:1px solid rgba(137,180,250,0.3);
+  border-radius:4px;
+  cursor:default
+}
+.js-mode-status::before {
+  content:'●';
+  font-size:8px;
+  animation:pulse 2s ease-in-out infinite
+}
+@keyframes pulse {
+  0%,100% { opacity:1 }
+  50% { opacity:0.4 }
+}
+
 /* JS Mode Restricted Path Warning */
 .js-mode-restricted {
   max-width:500px;
