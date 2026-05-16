@@ -788,13 +788,18 @@ function applyThemeCSS(s) {
 }
 
 function loadSettings() {
-  fetch("/api/settings")
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 3000);
+  
+  fetch("/api/settings", { signal: controller.signal })
     .then(function(r) { return r.json(); })
     .then(function(s) {
+      clearTimeout(timeout);
       if (!s || !s.showHidden && !s.enableHW && !s.language && !s.fontSize && !s.fontFamily && !s.mode) return;
       applyLoadedSettings(s);
     })
     .catch(function() {
+      clearTimeout(timeout);
       try {
         var local = localStorage.getItem('treevisual_settings');
         if (local) applyLoadedSettings(JSON.parse(local));
