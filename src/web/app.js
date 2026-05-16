@@ -224,6 +224,7 @@ function scanDirectory() {
       container.classList.remove('loading');
       var host = window.location.hostname;
       if (host === 'winterminal.github.io' || host.endsWith('.github.io')) {
+        document.body.classList.add('preview-mode');
         // Try to find path in demo tree
         var demoNode = findDemoNode(path);
         if (demoNode && demoNode.type === 'directory') {
@@ -784,6 +785,7 @@ if (typeof applyI18n === 'function') {
         // API works — do nothing
       }).catch(function() {
         // API failed — this is likely GitHub Pages
+        document.body.classList.add('preview-mode');
         loadDemoTree();
       });
     }

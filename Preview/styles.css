@@ -331,3 +331,12 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
   }
   .content { padding:12px 12px 12px 4px }
 }
+
+/* ===== GitHub Pages Preview Mode ===== */
+.preview-mode .header,
+.preview-mode .toolbar {
+  display:none
+}
+.preview-mode #treeContainer {
+  padding:0
+}
