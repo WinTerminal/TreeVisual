@@ -333,10 +333,7 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
 }
 
 /* ===== GitHub Pages Preview Mode ===== */
-.preview-mode .header,
-.preview-mode .toolbar {
+.preview-mode .autocomplete-wrapper,
+.preview-mode .header button[onclick="scanDirectory()"] {
   display:none
-}
-.preview-mode #treeContainer {
-  padding:0
 }

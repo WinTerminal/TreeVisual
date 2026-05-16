@@ -201,6 +201,12 @@ function scanDirectory() {
   container.innerHTML = '<div class="loading">' + t('loading') + '</div>';
   statusEl.textContent = t('statusLoading');
 
+  // Check if JS Mode is enabled
+  if (window.isJSMode && window.isJSMode()) {
+    scanWithJSMode(path);
+    return;
+  }
+
   fetch(buildApiUrl(path))
     .then(function(res) { return res.json(); })
     .then(function(data) {
@@ -241,6 +247,102 @@ function scanDirectory() {
       } else {
         container.innerHTML = '<div class="error">' + esc(t('errorRequest', { msg: e.message })) + '</div>';
         statusEl.textContent = t('statusError');
+      }
+    });
+}
+
+// ===== JS Mode Directory Scanning =====
+var _restrictedPaths = ['/', '/boot', '/dev', '/proc', '/sys', '/etc', '/usr', '/bin', '/sbin', '/lib', '/root', '/run', '/var', '/tmp'];
+
+function isRestrictedPath(path) {
+  var normalizedPath = path.replace(/\/+$/, '');
+  if (normalizedPath === '') normalizedPath = '/';
+  
+  for (var i = 0; i < _restrictedPaths.length; i++) {
+    if (normalizedPath === _restrictedPaths[i] || normalizedPath === _restrictedPaths[i]) {
+      return true;
+    }
+    if (_restrictedPaths[i] !== '/' && normalizedPath.startsWith(_restrictedPaths[i] + '/')) {
+      return true;
+    }
+  }
+  
+  if (/^\/$/.test(normalizedPath) || /^[a-zA-Z]:\\?$/.test(normalizedPath)) {
+    return true;
+  }
+  
+  return false;
+}
+
+function showRestrictedPathWarning(path) {
+  var downloadUrl = 'https://github.com/WinTerminal/TreeVisual/releases/latest';
+  
+  container.innerHTML = '<div class="js-mode-restricted">' +
+    '<div class="restricted-icon">🔒</div>' +
+    '<h3 data-i18n="restrictedTitle">Restricted Path</h3>' +
+    '<p class="restricted-msg">' + esc(t('restrictedMsg', { path: path })) + '</p>' +
+    '<p class="restricted-desc" data-i18n="restrictedDesc">System directories cannot be accessed in JS Mode due to browser security restrictions.</p>' +
+    '<div class="restricted-actions">' +
+      '<a href="' + downloadUrl + '" target="_blank" rel="noopener noreferrer" class="btn-download">' +
+        '⬇️ <span data-i18n="downloadFull">Download Full Version</span>' +
+      '</a>' +
+      '<button onclick="forceScanJSMode()" class="btn-anyways">' +
+        '⚡ <span data-i18n="anyways">Anyways</span>' +
+      '</button>' +
+    '</div>' +
+  '</div>';
+  container.classList.remove('loading');
+}
+
+function forceScanJSMode() {
+  container.innerHTML = '<div class="loading">' + t('loading') + '</div>';
+  statusEl.textContent = t('statusLoading');
+  
+  window._forceJSMode = true;
+  scanWithJSMode(currentPath, true);
+}
+
+function scanWithJSMode(path, force) {
+  if (!window.scanDirectoryJS) {
+    container.innerHTML = '<div class="error">JS Mode not available</div>';
+    statusEl.textContent = 'Error';
+    return;
+  }
+
+  if (!force && isRestrictedPath(path)) {
+    showRestrictedPathWarning(path);
+    statusEl.textContent = path + ' (Restricted)';
+    return;
+  }
+
+  window.scanDirectoryJS(path)
+    .then(function(data) {
+      if (!data) {
+        container.innerHTML = '<div class="error">Failed to access directory</div>';
+        container.classList.remove('loading');
+        statusEl.textContent = 'Error';
+        return;
+      }
+
+      renderTree(data);
+      window._lastTreeData = data;
+
+      // Feed data to HW-accelerated renderer if active
+      if (window.HWRenderer && window._hwEnabled) {
+        window.HWRenderer.loadTreeData(data);
+      }
+
+      statusEl.textContent = data.path + ' (JS Mode)';
+    })
+    .catch(function(e) {
+      container.classList.remove('loading');
+      
+      if (e.name === 'NotFoundError' || e.message.includes('Not found') || e.message.includes('access')) {
+        showRestrictedPathWarning(path);
+        statusEl.textContent = path + ' (Access Denied)';
+      } else {
+        container.innerHTML = '<div class="error">' + esc(t('errorRequest', { msg: e.message })) + '</div>';
+        statusEl.textContent = 'Error';
       }
     });
 }
@@ -439,6 +541,48 @@ function toggleDir(arrowEl) {
     var dirPath = arrowEl._nodePath;
     if (!dirPath) return;
 
+    // Check if JS Mode is enabled
+    if (window.isJSMode && window.isJSMode() && window.expandDirectoryJS) {
+      // Use File System API for expansion
+      window.expandDirectoryJS(dirPath)
+        .then(function(data) {
+          if (!data || !data.children || data.children.length === 0) {
+            arrowEl.textContent = "  ";
+            arrowEl._expanded = false;
+            return;
+          }
+
+          var container2 = document.createElement("div");
+          container2.className = "children-container";
+
+          var basePrefix = getPrefixOfLine(lineEl);
+          var plen = basePrefix.length;
+          var childPrefix = basePrefix;
+          if (plen >= 3 && basePrefix[plen-2] === "\u2500" && basePrefix[plen-1] === " ") {
+            if (basePrefix[plen-3] === "\u251c")
+              childPrefix = basePrefix.substring(0, plen - 3) + "\u2502   ";
+            else if (basePrefix[plen-3] === "\u2514")
+              childPrefix = basePrefix.substring(0, plen - 3) + "    ";
+          }
+          
+          for (var i = 0; i < data.children.length; i++) {
+            var isLast = (i == data.children.length - 1);
+            var childLine = createNodeEl(data.children[i], childPrefix, isLast, false);
+            container2.appendChild(childLine);
+          }
+
+          lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
+        })
+        .catch(function(e) {
+          console.error("Expand failed in JS Mode:", e);
+          arrowEl.textContent = "\u25b6";
+          arrowEl._expanded = false;
+        });
+      
+      return;
+    }
+
+    // Fallback to API call
     fetch(buildApiUrl(dirPath))
       .then(function(res) { return res.json(); })
       .then(function(data) {
@@ -776,18 +920,10 @@ if (typeof applyI18n === 'function') {
   // === GitHub Pages: auto-load demo tree when no backend ===
   (function checkPreview() {
     var host = window.location.hostname;
-    if (host === 'winterminal.github.io' || host.endsWith('.github.io')) {
-      // Try API; if it fails, load demo data
-      fetch('/api/tree?path=/').then(function(r) {
-        if (!r.ok) throw new Error();
-        return r.json();
-      }).then(function() {
-        // API works — do nothing
-      }).catch(function() {
-        // API failed — this is likely GitHub Pages
-        document.body.classList.add('preview-mode');
-        loadDemoTree();
-      });
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('preview') === '1' || host === 'winterminal.github.io' || host.endsWith('.github.io')) {
+      document.body.classList.add('preview-mode');
+      loadDemoTree();
     }
   })();
 
@@ -829,4 +965,151 @@ if (typeof applyI18n === 'function') {
     var el = document.getElementById(id);
     if (el) el.addEventListener('input', saveSettings);
   });
+
+  // ===== JS Mode (File System Access API) =====
+  var _jsModeEnabled = false;
+  var _directoryHandle = null;
+  var _handleMap = {}; // Store path -> handle mapping for expansion
+
+  function isJSMode() {
+    return _jsModeEnabled && 'showDirectoryPicker' in window;
+  }
+
+  async function scanDirectoryJS(path) {
+    if (!_directoryHandle) {
+      try {
+        _directoryHandle = await window.showDirectoryPicker();
+        currentPath = _directoryHandle.name;
+        pathInput.value = currentPath;
+      } catch (e) {
+        console.error('Directory picker cancelled or failed:', e);
+        return null;
+      }
+    }
+
+    var rootData = await buildTreeFromHandle(_directoryHandle, '/' + _directoryHandle.name);
+    return rootData;
+  }
+
+  async function buildTreeFromHandle(dirHandle, path) {
+    var children = [];
+    
+    try {
+      for await (const entry of dirHandle.values()) {
+        var childPath = path + '/' + entry.name;
+        
+        if (entry.kind === 'file') {
+          children.push({
+            name: entry.name,
+            path: childPath,
+            type: 'file',
+            hasChildren: false
+          });
+        } else if (entry.kind === 'directory') {
+          // Store the subdirectory handle in our map
+          _handleMap[childPath] = entry;
+          
+          children.push({
+            name: entry.name,
+            path: childPath,
+            type: 'directory',
+            hasChildren: true
+          });
+        }
+      }
+      
+      // Sort: directories first, then files, alphabetically
+      children.sort(function(a, b) {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      return {
+        name: dirHandle.name,
+        path: path,
+        type: 'directory',
+        hasChildren: children.length > 0,
+        children: children
+      };
+    } catch (e) {
+      console.error('Error reading directory:', e);
+      return {
+        name: dirHandle.name,
+        path: path,
+        type: 'directory',
+        hasChildren: false,
+        children: []
+      };
+    }
+  }
+
+  async function expandDirectoryJS(dirPath) {
+    var dirHandle = _handleMap[dirPath];
+    
+    if (!dirHandle) {
+      // Try to navigate from root handle
+      if (!_directoryHandle) return null;
+      
+      // Navigate to the requested path
+      var parts = dirPath.replace(/^\/+|\/+$/g, '').split('/');
+      var currentHandle = _directoryHandle;
+      
+      try {
+        for (var i = 0; i < parts.length; i++) {
+          currentHandle = await currentHandle.getDirectoryHandle(parts[i]);
+        }
+        
+        // Cache this handle
+        _handleMap[dirPath] = currentHandle;
+        dirHandle = currentHandle;
+      } catch (e) {
+        console.error('Failed to navigate to path:', e);
+        return null;
+      }
+    }
+
+    if (!dirHandle) return null;
+
+    return buildTreeFromHandle(dirHandle, dirPath);
+  }
+
+  function toggleJSMode() {
+    var cb = document.getElementById('enableJSMode');
+    var warning = document.getElementById('jsModeWarning');
+    _jsModeEnabled = cb ? cb.checked : false;
+    
+    if (warning) {
+      warning.style.display = _jsModeEnabled ? 'block' : 'none';
+    }
+
+    // Reset directory handle when disabling
+    if (!_jsModeEnabled) {
+      _directoryHandle = null;
+    }
+
+    saveSettings();
+  }
+
+  // Bind JS Mode checkbox
+  var jsModeCb = document.getElementById('enableJSMode');
+  if (jsModeCb) {
+    jsModeCb.addEventListener('change', toggleJSMode);
+    
+    // Check browser support
+    if (!('showDirectoryPicker' in window)) {
+      jsModeCb.disabled = true;
+      jsModeCb.title = t('browserNotSupported');
+      var warning = document.getElementById('jsModeWarning');
+      if (warning) {
+        warning.innerHTML = '<span>❌ <span>' + t('browserNotSupported') + '</span></span>';
+        warning.style.display = 'block';
+      }
+    }
+  }
+
+  // Expose JS mode functions globally
+  window.isJSMode = isJSMode;
+  window.scanDirectoryJS = scanDirectoryJS;
+  window.buildTreeFromHandle = buildTreeFromHandle;
+  window.expandDirectoryJS = expandDirectoryJS;
 }

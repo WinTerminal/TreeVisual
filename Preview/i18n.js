@@ -31,7 +31,15 @@
       normal: '中',
       slow: '慢',
       langSwitch: '语言',
-      pressEnterToContinue: '按 Enter 继续'
+      pressEnterToContinue: '按 Enter 继续',
+      jsMode: 'JS模式',
+      jsModeWarning: '实验性功能 - 可能存在问题。使用浏览器文件系统 API。',
+      restrictedTitle: '受限路径',
+      restrictedMsg: '路径 "{path}" 无法在 JS 模式下访问',
+      restrictedDesc: '由于浏览器安全限制，JS 模式无法访问系统目录。',
+      downloadFull: '下载完整版',
+      anyways: '仍然尝试',
+      browserNotSupported: '此浏览器不支持。请使用 Chrome/Edge 86+ 版本。'
     },
     en: {
       title: 'TreeVisual',
@@ -42,7 +50,7 @@
       home: 'Home',
       refresh: 'Refresh',
     settings: 'Settings',
-    showHidden: 'Show hidden files',
+      showHidden: 'Show hidden files',
       serviceMode: 'Service Mode',
       hwAccel: 'Hardware Acceleration',
       fontSize: 'Font Size',
@@ -59,7 +67,15 @@
       normal: 'Normal',
       slow: 'Slow',
       langSwitch: 'Language',
-      pressEnterToContinue: 'Press Enter to continue'
+      pressEnterToContinue: 'Press Enter to continue',
+      jsMode: 'JS Mode',
+      jsModeWarning: 'Experimental feature - may have issues. Uses browser File System API.',
+      restrictedTitle: 'Restricted Path',
+      restrictedMsg: 'Path "{path}" cannot be accessed in JS Mode',
+      restrictedDesc: 'System directories cannot be accessed in JS Mode due to browser security restrictions.',
+      downloadFull: 'Download Full Version',
+      anyways: 'Anyways',
+      browserNotSupported: 'Not supported in this browser. Please use Chrome/Edge 86+.'
     }
   };
 

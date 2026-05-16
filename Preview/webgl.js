@@ -123,6 +123,22 @@
     if (_childrenCache[path] !== undefined) {
       callback(_childrenCache[path]); return;
     }
+    
+    // Check for JS Mode - use File System API instead of backend
+    if (window.isJSMode && window.isJSMode() && window.expandDirectoryJS) {
+      window.expandDirectoryJS(path)
+        .then(function(data) {
+          var kids = (data && data.children) ? data.children : [];
+          _childrenCache[path] = kids;
+          callback(kids);
+        })
+        .catch(function() {
+          _childrenCache[path] = [];
+          callback([]);
+        });
+      return;
+    }
+    
     fetch(apiTreeUrl(path))
       .then(function(r) { return r.json(); })
       .then(function(data) {
@@ -354,7 +370,81 @@
     }
   }
 
+  function isUIElement(target) {
+    if (!target) return false;
+    var tag = target.tagName || '';
+    var className = target.className || '';
+    
+    // Check for interactive UI elements
+    if (tag === 'SELECT' || tag === 'OPTION' || 
+        tag === 'BUTTON' || tag === 'INPUT' ||
+        tag === 'TEXTAREA') return true;
+    
+    // Check for settings panel and dropdowns
+    if (className.indexOf('settings-panel') !== -1 ||
+        className.indexOf('settings-btn') !== -1 ||
+        className.indexOf('lang-switch') !== -1 ||
+        className.indexOf('pathSuggestions') !== -1 ||
+        className.indexOf('suggestion-item') !== -1 ||
+        className.indexOf('autocomplete-wrapper') !== -1 ||
+        className.indexOf('preview-footer') !== -1 ||
+        className.indexOf('js-mode-') !== -1 ||
+        className.indexOf('restricted-') !== -1 ||
+        className.indexOf('btn-') !== -1) return true;
+    
+    // Check parents recursively
+    if (target.parentElement) {
+      return isUIElement(target.parentElement);
+    }
+    
+    return false;
+  }
+
+  var _uiInteractionPaused = false;
+  var _pointerEventsTimeout = null;
+
+  function ensureCanvasPointerEvents() {
+    if (_pointerEventsTimeout) clearTimeout(_pointerEventsTimeout);
+    if (_canvas) _canvas.style.pointerEvents = 'auto';
+  }
+
+  function pauseCanvasPointerEvents() {
+    if (_canvas) _canvas.style.pointerEvents = 'none';
+    
+    // 确保在 300ms 后自动恢复（安全网）
+    if (_pointerEventsTimeout) clearTimeout(_pointerEventsTimeout);
+    _pointerEventsTimeout = setTimeout(ensureCanvasPointerEvents, 300);
+  }
+
+  function setupUIEventPause() {
+    // Pause Canvas events when UI elements are focused/interacted with
+    var uiSelectors = [
+      'select', 'input[type="checkbox"]', 'textarea',
+      '.settings-panel', '#settingsPanel',
+      '.pathSuggestions', '.suggestion-item'
+    ];
+
+    uiSelectors.forEach(function(selector) {
+      var elements = document.querySelectorAll(selector);
+      elements.forEach(function(el) {
+        el.addEventListener('mousedown', pauseCanvasPointerEvents);
+
+        el.addEventListener('mouseup', function() {
+          setTimeout(ensureCanvasPointerEvents, 150);
+        });
+
+        el.addEventListener('focus', pauseCanvasPointerEvents);
+
+        el.addEventListener('blur', function() {
+          setTimeout(ensureCanvasPointerEvents, 150);
+        });
+      });
+    });
+  }
+
   function handleMouseDown(e) {
+    // Ignore clicks on UI elements
+    if (isUIElement(e.target)) return;
     _ctx.font = _fontSize + 'px ' + _fontFamily;
     var rect = _canvas.getBoundingClientRect();
     var mx = e.clientX - rect.left;
@@ -454,9 +544,13 @@
         _canvas.addEventListener('wheel', handleWheel, { passive: false });
         _resizeObs = new ResizeObserver(function() { requestRender(); });
         _resizeObs.observe(_canvas);
+
+        // Pause Canvas events when interacting with UI elements
+        setupUIEventPause();
+
         this._initialized = true;
         return true;
-      } catch(e) { console.error('[HWRenderer] Init failed:', e); return false; }
+      } catch(e) { console.error('[HWRenderer] Init failed:', e); return false }
     },
 
     loadTreeData: function(json) {
