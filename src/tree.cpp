@@ -959,11 +959,11 @@ public:
         // Force kill if still alive
         if (kill((pid_t)pid, 0) == 0)
             kill((pid_t)pid, SIGKILL);
+        // Reap any remaining zombie child
+        while (waitpid((pid_t)-1, nullptr, WNOHANG) > 0) {}
 #endif
         removePid();
         std::cout << " stopped.\n";
-        // Reap any remaining zombie child
-        while (waitpid((pid_t)-1, nullptr, WNOHANG) > 0) {}
         return true;
     }
 
