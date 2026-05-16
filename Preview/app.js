@@ -542,6 +542,7 @@ function toggleDir(arrowEl) {
     if (!dirPath) return;
 
     // Check if JS Mode is enabled
+    console.log('[toggleDir] JS Mode check:', !!window.isJSMode, window.isJSMode ? window.isJSMode() : 'N/A', !!window.expandDirectoryJS, 'path:', dirPath);
     if (window.isJSMode && window.isJSMode() && window.expandDirectoryJS) {
       // Use File System API for expansion
       window.expandDirectoryJS(dirPath)
