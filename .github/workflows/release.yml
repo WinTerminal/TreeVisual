@@ -98,6 +98,9 @@ jobs:
           VER="${{ github.ref_name }}"
           echo "Syncing version $VER"
 
+          # Switch to main branch (checkout is in detached HEAD on the tag)
+          git checkout main
+
           # Update index.html version
           sed -i "s/<span>v[0-9.]\+<\/span>/<span>$VER<\/span>/" src/web/index.html
 
@@ -107,14 +110,12 @@ jobs:
           # Add changelog entry to README if not present
           if ! grep -q "### $VER" README.md; then
             LANG=C.UTF-8
-            # Generate changelog from last tag
             LAST=$(git tag --sort=-creatordate | head -2 | tail -1 2>/dev/null || echo "")
             if [ -n "$LAST" ]; then
               LOG=$(git log "$LAST..${{ github.ref_name }}" --oneline --no-decorate 2>/dev/null | grep -v "chore(bump)" | head -30)
             else
               LOG="Initial release."
             fi
-            # Insert after the first version entry
             awk -v ver="$VER" -v logtext="$LOG" '
               /^### v[0-9]/ && !done {
                 print "### " ver
