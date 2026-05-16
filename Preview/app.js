@@ -885,9 +885,13 @@ function restoreHWState() {
 var _serviceRunning = false;
 
 function checkServiceStatus() {
-  fetch("/api/service/status")
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 2000);
+  
+  fetch("/api/service/status", { signal: controller.signal })
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      clearTimeout(timeout);
       _serviceRunning = data.running;
       var label = document.getElementById("serviceStatusLabel");
       var btn = document.getElementById("serviceToggleBtn");
@@ -905,6 +909,7 @@ function checkServiceStatus() {
       }
     })
     .catch(function() {
+      clearTimeout(timeout);
       _serviceRunning = false;
       var label = document.getElementById("serviceStatusLabel");
       var btn = document.getElementById("serviceToggleBtn");
@@ -915,9 +920,13 @@ function checkServiceStatus() {
 
 function toggleService() {
   var action = _serviceRunning ? "stop" : "start";
-  fetch("/api/service/" + action, { method: "POST" })
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 3000);
+  
+  fetch("/api/service/" + action, { method: "POST", signal: controller.signal })
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      clearTimeout(timeout);
       var retries = 0;
       function poll() {
         checkServiceStatus();
@@ -927,7 +936,10 @@ function toggleService() {
       }
       setTimeout(poll, 500);
     })
-    .catch(function() { setTimeout(checkServiceStatus, 1000); });
+    .catch(function() { 
+      clearTimeout(timeout);
+      setTimeout(checkServiceStatus, 1000); 
+    });
 }
 
 // Poll service status every 10 seconds
