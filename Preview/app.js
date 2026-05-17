@@ -577,17 +577,41 @@ function renderChildren(lineEl, arrowEl, children) {
 
   // 下一帧触发展开动画 (让浏览器先渲染初始状态)
   requestAnimationFrame(function() {
+    // 动态添加GPU加速属性 (仅动画期间)
+    container2.style.willChange = 'max-height, opacity';
+    container2.style.transform = 'translateZ(0)';
+    container2.style.backfaceVisibility = 'hidden';
+    
+    // 为子元素也添加GPU加速
+    var childLines = container2.querySelectorAll('.tree-line');
+    for (var ci = 0; ci < childLines.length; ci++) {
+      childLines[ci].style.willChange = 'opacity, transform';
+      childLines[ci].style.transform = 'translateZ(0)';
+      childLines[ci].style.backfaceVisibility = 'hidden';
+    }
+    
     // 先设置max-height为实际内容高度 (scrollHeight)
     container2.style.maxHeight = container2.scrollHeight + 'px';
     
     // 然后添加 expanded 类，触发 opacity 过渡
     container2.classList.add('expanded');
     
-    // 动画结束后清理
+    // 动画结束后清理GPU加速属性 (释放内存!)
     setTimeout(function() {
       // 移除 max-height 限制，让内容自然流动
       container2.style.maxHeight = '';
+      
+      // 清理容器GPU加速
       container2.style.willChange = 'auto';
+      container2.style.transform = '';
+      container2.style.backfaceVisibility = '';
+      
+      // 清理子元素GPU加速
+      for (var cj = 0; cj < childLines.length; cj++) {
+        childLines[cj].style.willChange = 'auto';
+        childLines[cj].style.transform = '';
+        childLines[cj].style.backfaceVisibility = '';
+      }
     }, 350);  // 略大于 CSS transition 时间 (320ms + buffer)
   });
 }
@@ -600,11 +624,24 @@ function toggleDir(arrowEl) {
     // 收起动画: 平滑过渡到 max-height: 0
     var next = lineEl.nextSibling;
     if (next && (next.className === "children-container" || next.classList.contains("children-container"))) {
+      // 动态添加GPU加速属性 (仅动画期间)
+      next.style.willChange = 'max-height, opacity';
+      next.style.transform = 'translateZ(0)';
+      next.style.backfaceVisibility = 'hidden';
+      
+      // 为子元素也添加GPU加速
+      var collapseChildLines = next.querySelectorAll('.tree-line');
+      for (var cci = 0; cci < collapseChildLines.length; cci++) {
+        collapseChildLines[cci].style.willChange = 'opacity, transform';
+        collapseChildLines[cci].style.transform = 'translateZ(0)';
+        collapseChildLines[cci].style.backfaceVisibility = 'hidden';
+      }
+      
       // 移除 expanded 类，添加 collapsed 类
       next.classList.remove('expanded');
       next.classList.add('collapsed');
       
-      // 动画结束后移除容器
+      // 动画结束后移除容器 (DOM移除自动释放GPU内存)
       setTimeout(function() {
         if (next.parentNode) {
           next.remove();

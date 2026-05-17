@@ -292,17 +292,13 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
 }
 #treeText.init-msg { text-align:center; padding:40px; color:var(--accent-yellow); font-size:16px }
 
-/* Tree Lines - GPU Optimized */
+/* Tree Lines - Lightweight (no forced GPU layers) */
 .tree-line {
   white-space:pre;
   min-height:1.4em;
   line-height:1.4;
   padding:1px 4px;
   border-radius:2px;
-  will-change: background-color, opacity;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translateZ(0);
   transition:background-color 0.10s ease, opacity 0.18s ease
 }
 .tree-line:hover { background:var(--bg-hover) }
@@ -310,10 +306,6 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
 /* Children Container Animation - Smooth Height Transition */
 .children-container {
   overflow:hidden;
-  will-change: max-height, opacity;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translateZ(0);
   
   /* 初始状态: 收起 */
   max-height: 0;
@@ -335,13 +327,8 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
   opacity: 0;
 }
 
-/* Staggered child fade-in effect */
+/* Staggered child fade-in effect - GPU only during animation */
 .children-container .tree-line {
-  will-change: opacity, transform;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform: translateZ(0);
-  
   /* 初始状态: 透明 */
   opacity: 0;
   transform: translateX(-8px);
