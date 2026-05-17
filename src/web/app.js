@@ -965,10 +965,25 @@ if (typeof applyI18n === 'function') {
     var urlParams = new URLSearchParams(window.location.search);
     console.log('[Init] checkPreview:', { host, isPreview: urlParams.get('preview'), isGithub: host.endsWith('.github.io') });
     if (urlParams.get('preview') === '1' || host === 'winterminal.github.io' || host.endsWith('.github.io')) {
-      console.log('[Init] Preview mode detected, loading demo tree...');
       document.body.classList.add('preview-mode');
-      loadDemoTree();
-      console.log('[Init] loadDemoTree() called');
+      console.log('[Init] Preview mode detected, will load demo tree after settings...');
+      
+      // Wait for settings to load, then render demo tree
+      var attempts = 0;
+      var maxAttempts = 20;
+      function tryLoadDemo() {
+        attempts++;
+        var container = document.getElementById("treeText");
+        if (container && (container.innerHTML === '' || container.classList.contains('init-msg') || container.innerHTML.indexOf('loadingInit') >= 0)) {
+          if (attempts < maxAttempts) {
+            setTimeout(tryLoadDemo, 100);
+            return;
+          }
+        }
+        console.log('[Init] Loading demo tree (attempt', attempts, ')');
+        loadDemoTree();
+      }
+      setTimeout(tryLoadDemo, 500);
     } else {
       console.log('[Init] Not preview mode, skipping demo tree');
     }
