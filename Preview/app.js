@@ -637,6 +637,9 @@ function toggleDir(arrowEl) {
         collapseChildLines[cci].style.backfaceVisibility = 'hidden';
       }
       
+      // 关键: 先清除inline style的maxHeight，让CSS类的max-height:0生效!
+      next.style.maxHeight = '';
+      
       // 移除 expanded 类，添加 collapsed 类
       next.classList.remove('expanded');
       next.classList.add('collapsed');

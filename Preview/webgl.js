@@ -281,6 +281,7 @@
     // Calculate animation range
     var animStartIdx = -1;
     var animEndIdx = -1;
+    var isAnimatingThisFrame = false;
     
     if (as) {
       animStartIdx = as.parentIdx + 1;
@@ -293,6 +294,9 @@
         _animState = null;
         as = null;
         _staticDirty = true;
+        isAnimatingThisFrame = false;
+      } else {
+        isAnimatingThisFrame = true;
       }
     }
 
