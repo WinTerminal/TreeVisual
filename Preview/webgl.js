@@ -305,7 +305,35 @@
 
     // Batch rendering: group by color to minimize state changes
     if (as && animStartIdx >= 0) {
-      // Render static lines (before animation range) - no offset
+      // Calculate overall progress for follow-along effect
+      var totalAnimLines = animEndIdx - animStartIdx + 1;
+      var overallProgress = 0;
+      
+      if (as.type === 'expand') {
+        // Expand: use last child's progress (when last child arrives, animation is mostly done)
+        var lastDelay = Math.max(0, (totalAnimLines - 1) * as.stagger);
+        var rawP = Math.min(1, Math.max(0, (now - as.startTime - lastDelay) / as.duration));
+        overallProgress = 1 - Math.pow(1 - rawP, 3); // ease-out
+      } else if (as.type === 'collapse') {
+        // Collapse: use first child's progress (when first child starts leaving)
+        var rawP = Math.min(1, Math.max(0, (now - as.startTime) / as.duration));
+        overallProgress = rawP * rawP * rawP; // ease-in
+      }
+      
+      // Calculate offset for lines AFTER animation range
+      // This makes content below smoothly follow the animation
+      var offsetY = 0;
+      if (totalAnimLines > 0) {
+        if (as.type === 'expand') {
+          // Expand: offset grows from 0 to total height
+          offsetY = totalAnimLines * _lineH * overallProgress;
+        } else {
+          // Collapse: offset shrinks from total height to 0
+          offsetY = totalAnimLines * _lineH * (1 - overallProgress);
+        }
+      }
+      
+      // Render static lines (before animation range) - no offset needed
       for (var i = 0; i <= animStartIdx; i++) {
         if (i < _lines.length) {
           _ctx.fillStyle = i === 0 ? _colors.root : (_lineMeta[i] && _lineMeta[i].isDir ? _colors.dir : _colors.text);
@@ -313,9 +341,7 @@
         }
       }
       
-      // Render animated lines with alpha and individual stagger
-      // The y-coordinate interpolation itself creates the "following" effect
-      // No need for additional offset on subsequent lines!
+      // Render animated lines with stagger effect
       for (var j = animStartIdx; j <= animEndIdx && j < _lines.length; j++) {
         var text = _lines[j];
         var m = _lineMeta[j];
@@ -329,9 +355,8 @@
           p = 1 - Math.pow(1 - p, 3); // ease-out
           
           alpha = p;
-          // Slide from parent position: this naturally pushes content below
           var startY = yOff + as.parentIdx * _lineH;
-          y = startY + (y - startY) * p;
+          y = startY + (y - startY) * p;  // Slide down from parent
         } else if (as.type === 'collapse') {
           var childIdx = j - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
@@ -339,9 +364,8 @@
           p = p * p * p; // ease-in
           
           alpha = 1 - p;
-          // Slide to parent position: this naturally pulls content above
           var startY = yOff + as.parentIdx * _lineH;
-          y = startY + (y - startY) * (1 - p);
+          y = startY + (y - startY) * (1 - p);  // Slide up to parent
         }
 
         if (alpha < 1) _ctx.globalAlpha = alpha;
@@ -352,11 +376,11 @@
         if (alpha < 1) _ctx.globalAlpha = 1;
       }
       
-      // Render static lines (after animation range)
-      // NO OFFSET needed! The animation lines' y-interpolation handles spacing
+      // Render static lines (after animation range) WITH OFFSET
+      // This creates the "follow-along" effect
       for (var k = animEndIdx + 1; k < _lines.length; k++) {
         _ctx.fillStyle = k === 0 ? _colors.root : (_lineMeta[k] && _lineMeta[k].isDir ? _colors.dir : _colors.text);
-        _ctx.fillText(_lines[k], 4, yOff + k * _lineH);
+        _ctx.fillText(_lines[k], 4, yOff + k * _lineH + offsetY);
       }
       
       // Continue animation
