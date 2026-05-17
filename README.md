@@ -4,6 +4,8 @@
 [![Version](https://img.shields.io/badge/version-v1.1.4-7aa2f7?style=flat)]()
 [![Release](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml/badge.svg)](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml)
 
+**[English](README.md) | [简体中文](docs/README-zh.md) | [繁體中文](docs/README-tc.md)**
+
 <p align="center">
   <img src="TreeViz-logo.png" alt="TreeVisual Logo (Dark)" width="128" height="128">&nbsp;&nbsp;<img src="TreeViz-logo-light.png" alt="TreeVisual Logo (Light)" width="128" height="128">
   <br>

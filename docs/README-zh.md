@@ -1,157 +1,165 @@
 [![C++17](https://img.shields.io/badge/C++-17-blue?style=flat&logo=c%2B%2B)](https://en.cppreference.com/w/)
 [![MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=flat)](https://github.com/WinTerminal/TreeVisual)
+[![Version](https://img.shields.io/badge/version-v1.1.4-7aa2f7?style=flat)]()
+[![Release](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml/badge.svg)](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml)
 
-[English](./README.md) | [简体中文](./README-zh.md) | [繁體中文](./README-tc.md)
+**[English](../README.md) | [简体中文](README-zh.md) | [繁體中文](README-tc.md)**
 
-# TreeVisual - 跨平台智能目录树工具
+<p align="center">
+  <img src="../TreeViz-logo.png" alt="TreeVisual Logo" width="128" height="128">&nbsp;&nbsp;<img src="../TreeViz-logo-light.png" alt="TreeVisual Logo" width="128" height="128">
+  <br>
+  <sub>暗色模式 &nbsp;|&nbsp; 亮色模式</sub>
+</p>
 
-一个现代化的命令行工具，用于生成美观的目录树结构。采用面向对象架构设计，具备智能输出策略、多线程并行扫描、自动提权等特性。
+# TreeVisual - 跨平台目录树可视化工具
 
-## 特性
+现代化的目录树工具，支持 TUI 模式和 **WebUI**（懒加载树浏览器 + Canvas 硬件加速渲染）。基于 C++17 构建，零第三方依赖。
+[下载最新版本](https://github.com/WinTerminal/TreeVisual/releases/latest) | 通过 GitHub Actions 自动构建。  
+[在线预览](https://winterminal.github.io/TreeVisual/)（静态界面）
 
-- **美观树形输出** - 使用 Unicode 连线字符，层次清晰易读
-- **智能输出策略**：
-  - ≤50 行：终端显示 + 自动复制到剪贴板
-  - 51-100 行：仅复制到剪贴板（避免刷屏）
-  - >100 行：自动保存为文件
-- **多线程加速** - 同一层级子目录并行遍历，大型目录提速 2-5 倍
-- **自动提权** - 遇到权限不足时，自动询问是否以管理员/root 权限重新运行
-- **安全处理符号链接** - 避免循环链接导致的崩溃
-- **跨平台支持** - Linux、macOS、Windows 运行一致
+## 功能特性
 
-## 架构设计
+### CLI / TUI 模式
+- **美观的树形输出** - Unicode 连线字符，层次清晰
+- **智能输出策略** - 终端显示 / 剪贴板 / 文件自动切换
+- **多线程加速** - 并行遍历大型目录（2-5 倍提速）
+- **自动提权** - 权限不足时提示以管理员/root 身份重新运行
+- **安全处理符号链接** - 防止循环链接导致崩溃
+- **守护进程服务模式** (`--service on|off|status`) - 后台 WebUI 服务
 
-```
-┌─────────────────────────────────────────────────┐
-│                    App                         │
-│               (主应用入口)                      │
-└─────────────────────────────────────────────────┘
-                       │
-           ┌───────────┴───────────┐
-           ▼                     ▼
-    ┌──────────────┐    ┌─────────────────┐
-    │  Directory  │    │ IPlatformHelper │
-    │    Tree    │    │ (平台接口)      │
-    └──────────────┘    └─────────────────┘
-           │                    │
-    ┌─────┴─────┐       ┌─────┴─────┐
-    ▼           ▼       ▼           ▼
- ITraversal  Node   Windows   Unix
- Policy            Helper    Helper
-```
+### WebUI 模式 (`--web`)
+- **懒加载树结构** - 按需展开目录，仅加载当前层级
+- **Canvas 2D 硬件加速渲染** - 字符树形展示，平滑展开/收起动画，Unicode 方框绘制
+- **4 种主题 × 2 种模式**（Mocha、Macchiato、Frappé、Latte × 暗色/亮色）— 共 8 套配色方案
+- **路径自动补全** - 防抖、大小写不敏感前缀匹配，目录优先排序
+- **国际化支持** - 英文 / 简体中文，自动检测浏览器语言
+- **设置面板** - 字体大小、字体族、主题、动画速度、隐藏文件、服务开关
+- **展开/收起动画** - 渐入+滑动交错动画（打开和关闭均支持）
+- **自定义颜色** - 自选背景色、文字色、目录色、根目录色
+- **JS 模式（Beta）** - 无需后端，使用浏览器 File System API 访问本地文件系统
+- **GitHub Pages 预览** — 静态界面可访问 [winterminal.github.io/TreeVisual](https://winterminal.github.io/TreeVisual/)
 
-### 核心类
-
-| 类名 | 说明 |
-|------|------|
-| `PermissionErrorTracker` | 单例，线程安全地记录权限错误 |
-| `Node` | 目录树节点，支持文件和目录类型 |
-| `ITraversalPolicy` | 遍历策略接口，支持自定义实现 |
-| `DefaultTraversalPolicy` | 默认遍历实现，过滤隐藏文件 |
-| `DirectoryTree` | 串行目录树构建器 |
-| `ParallelDirectoryTree` | 并行目录树构建器，继承自 `DirectoryTree` |
-| `IOutputHandler` | 输出处理接口 |
-| `ConsoleOutputHandler` | 控制台输出 |
-| `ClipboardOutputHandler` | 剪贴板输出 |
-| `FileOutputHandler` | 文件输出 |
-| `IPlatformHelper` | 平台助手接口 |
-| `WindowsPlatformHelper` | Windows 平台实现 |
-| `UnixPlatformHelper` | Unix/Linux/macOS 平台实现 |
-| `TreeFormatter` | 树格式化器，将 Node 转换为文本 |
-| `App` | 主应用类，协调各组件 |
-
-### 设计模式
-
-- **单例模式**：`PermissionErrorTracker`
-- **策略模式**：`ITraversalPolicy`、`IOutputHandler`、`IPlatformHelper`
-- **模板方法模式**：`DirectoryTree::build()` → `buildNode()`
-- **继承多态**：`ParallelDirectoryTree` 覆盖 `build()` 方法实现并行
-
-## 安装
-
-### 方式一：安装脚本（推荐）
-
-项目已自带安装脚本，自动处理依赖安装、编译和 PATH 配置。
+## 快速开始
 
 ```bash
-# Linux/macOS
-./install.sh
+# 方式一：下载预编译包
+# https://github.com/WinTerminal/TreeVisual/releases/latest
 
-# Windows (以管理员身份运行)
-install.bat
-```
+# 方式二：从源码构建（自动下载依赖）
+./install.sh    # Linux/macOS
+install.bat     # Windows
 
-安装脚本功能：
-- Linux: 自动安装 `xclip` 剪贴板依赖
-- 编译 TreeVisual
-- 检测系统 `tree` 命令冲突，自动重命名为 `treeviz`
-- 交互式引导添加到 PATH
-
-### 方式二：预编译二进制
-
-从 [Releases](https://github.com/WinTerminal/TreeVisual/releases) 下载对应平台的可执行文件。
-
-### 方式三：CMake 编译
-
-**依赖**：CMake 3.10+
-
-```bash
+# 方式三：手动编译
 git clone https://github.com/WinTerminal/TreeVisual.git
-cd TreeVisual
-mkdir build && cd build
-cmake ..
-cmake --build . --config Release
-sudo cmake --install .
+cd TreeVisual && mkdir build && cd build
+cmake .. && make -j$(nproc)
+./tree --web
 ```
 
-### 方式四：直接编译
-
-**依赖**：C++17 编译器（g++/clang++），Linux 需 `xclip` 或 `xsel`
-
-```bash
-g++ -std=c++17 -pthread -O2 src/tree.cpp -o tree
-```
-
-Windows (MinGW)：
-
-```bash
-g++ -std=c++17 -pthread -O2 src/tree.cpp -o tree.exe -static -lshlwapi -lole32 -lshell32
-```
+安装脚本会自动下载源码和 Web 资源，将其嵌入二进制文件，编译并清理。  
+脚本会检测系统区域设置和编码（UTF-8/GBK/Big5），以英文、简体中文或繁體中文显示消息。
 
 ## 使用方法
 
-```bash
-# 显示当前目录树
-tree
-
-# 显示指定目录
-tree /path/to/directory
-
-# 扫描用户主目录
-tree ~
-
-# 显示隐藏文件
-tree --hidden
-
-# TUI 模式
-tree -v
-
-# 设置界面
-tree --setting
 ```
+tree [路径]              显示目录树（CLI）
+tree -v                  交互式 TUI 模式
+tree --web               启动 WebUI 服务器（端口 7200）
+tree --web stop          停止运行中的 WebUI 服务器
+tree --service on        启动后台守护进程
+tree --service off       停止守护进程
+tree --service status    检查守护进程状态
+tree --hidden            显示隐藏文件/目录
+tree --setting           打开设置面板
+```
+
+## 架构
+
+```
+TreeVisual/
+├── src/
+│   ├── tree.cpp          # 主源码文件（约 1860 行）
+│   └── web/              # WebUI 静态资源
+│       ├── index.html
+│       ├── styles.css    # 4 种 Catppuccin 主题，暗色/亮色模式
+│       ├── app.js        # 核心逻辑（树形渲染、懒加载、设置、服务）
+│       ├── i18n.js       # 英/中词典
+│       └── webgl.js      # Canvas 2D 硬件加速字符树渲染器
+├── Preview/              # GitHub Pages 部署副本
+├── scripts/
+│   └── embed-web.py      # 编译时将 web/ 嵌入 tree.cpp
+├── packaging/            # 发布打包模板
+├── .github/workflows/
+│   ├── build.yml         # 推送/PR 时 CI 构建
+│   ├── release.yml       # 标签推送时自动发布（3 平台）
+│   └── pages.yml         # 部署 Web UI 到 GitHub Pages
+├── CMakeLists.txt
+├── install.sh            # Linux/macOS 安装脚本（自动下载+编译）
+└── install.bat           # Windows 安装脚本
+```
+
+## API
+
+| 端点 | 方法 | 参数 | 说明 |
+|------|------|------|------|
+| `/api/tree` | GET | `path`, `show_hidden` | 单层树 JSON |
+| `/api/list` | GET | `path`, `show_hidden` | 扁平目录列表 JSON |
+| `/api/settings` | GET/POST | - | 持久化设置（主题、模式、字体等） |
+| `/api/home` | GET | - | 返回用户主目录路径 |
+| `/api/service/status` | GET | - | 守护进程运行状态 |
+| `/api/service/start` | POST | - | 后台启动守护进程 |
+| `/api/service/stop` | POST | - | 停止运行中的守护进程 |
 
 ## 技术栈
 
-- **语言**：C++17
-- **标准库**：`std::filesystem`、`std::thread`、`std::atomic`
-- **剪贴板**：Windows (Win32 API)，macOS (pbcopy)，Linux (xclip/xsel)
-- **提权**：Windows (runas)，Unix (sudo)
+| 层级 | 技术 |
+|------|------|
+| 语言 | C++17 |
+| 文件系统 | `std::filesystem` |
+| 并发 | `std::thread`, `std::atomic` |
+| HTTP 服务器 | 原生 BSD socket（零依赖） |
+| 前端 | 原生 HTML/CSS/JS（无框架） |
+| Canvas | Canvas 2D `getContext('2d')` — 硬件加速字符树 |
+| 剪贴板 | Win32 API / pbcopy / xclip |
+| CI/CD | GitHub Actions（3 平台） |
+
+## 更新日志
+
+### v1.1.4
+- **收起动画** — 展开和收起均支持交错滑动+渐变动画
+- **动画优化** — 缓动函数从 easeOutQuad 改为 easeOutCubic；全新实现收起动画
+- **服务模式修复** — `isRunning()` 正确检测僵尸进程；`stop()` 支持自杀保护；端口共享 `SO_REUSEPORT`
+- **前端服务开关修复** — 点击 Stop 后界面及时更新为 Off（catch 处理器处理连接断开）
+- **GitHub Pages 预览** — `Preview/` 目录 + `pages.yml` 工作流，静态界面在线预览
+- **版本号自动同步** — Release 工作流自动更新 `index.html` 和 `README.md` 版本号并推送
+
+### v1.1.3
+- **自动发布工作流**：标签推送触发跨平台构建、打包和 GitHub Release
+- **安装脚本增强**：自动下载 Web 资源，嵌入二进制文件，编译后清理
+- **国际化：3 种语言**：英文 / 简体中文 / 繁體中文，自动检测区域编码（UTF-8/GBK/Big5）
+- **PATH 提示**：默认 `(Y/n)` — 回车确认添加，`n` 跳过
+- **WebUI 内嵌回退**：`WEB_EMBEDDED` 编译标志将 Web 文件烘焙进二进制
+
+### v1.1.2
+- **Bug 修复：14 个问题修复**：Windows Service 崩溃（条件反转）、硬编码主目录路径、CSS 孤儿规则、MSVC 字符串限制、CSP 头等
+- **跨平台包**：通过 GitHub Actions 提供 Linux/macOS/Windows 预编译二进制
+
+### v1.1.1
+- 服务模式 (`--service on|off|status`)
+- 设置持久化 (`/api/settings`)
+- WebUI 启停子命令 (`--web start|stop`)
+
+### v1.1.0
+- WebUI 懒加载，前端分离至 `src/web/`
+- 国际化支持（中/英）
+- WebGL 测试版，CSS 重构，设置面板
+- 静态文件服务及回退机制
 
 ## 贡献
 
-欢迎 Issue 和 Pull Request。请确保代码风格一致并通过跨平台测试。
+欢迎提交 Issue 和 Pull Request。请确保跨平台兼容性。
 
 ## 许可证
 
-MIT License © 2026 WinTerminal
+MIT © 2026 WinTerminal
