@@ -34,3 +34,6 @@ src/web_embed.h
 test_*.js
 /tmp/*.png
 node_modules/
+
+# 本地工具配置
+.mcp.json
