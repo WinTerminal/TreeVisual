@@ -5,7 +5,9 @@
 [![Release](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml/badge.svg)](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml)
 
 <p align="center">
-  <img src="TreeViz-logo.png" alt="TreeVisual Logo" width="128" height="128">
+  <img src="TreeViz-logo.png" alt="TreeVisual Logo (Dark)" width="128" height="128">&nbsp;&nbsp;<img src="TreeViz-logo-light.png" alt="TreeVisual Logo (Light)" width="128" height="128">
+  <br>
+  <sub>Dark Mode &nbsp;|&nbsp; Light Mode</sub>
 </p>
 
 # TreeVisual - Cross-platform Directory Tree Visualizer
