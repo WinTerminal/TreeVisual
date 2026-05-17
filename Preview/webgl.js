@@ -276,8 +276,6 @@
       var m = _lineMeta[i];
       var y = yOff + i * _lineH;
       var alpha = 1;
-      var scale = 1;
-      var blur = 0;
 
       if (as) {
         if (as.type === 'expand' && i > as.parentIdx && i <= as.parentIdx + as.count) {
@@ -285,19 +283,10 @@
           var delay = childIdx * as.stagger;
           var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
           
-          // Elastic ease-out with overshoot
-          var c4 = (2 * Math.PI) / 3;
-          if (p === 0) {
-            p = 0;
-          } else if (p === 1) {
-            p = 1;
-          } else {
-            p = Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * c4) + 1;
-          }
+          // Smooth ease-out cubic (fast and lightweight)
+          p = 1 - Math.pow(1 - p, 3);
           
           alpha = p;
-          scale = 0.8 + 0.2 * p;
-          blur = Math.max(0, 3 * (1 - p));
           var startY = yOff + as.parentIdx * _lineH;
           y = startY + (y - startY) * p;
         } else if (as.type === 'collapse' && i > as.parentIdx && i <= as.parentIdx + as.count) {
@@ -305,33 +294,17 @@
           var delay = childIdx * as.stagger;
           var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
           
-          // Smooth cubic ease-in for collapse
+          // Smooth ease-in cubic for collapse
           p = p * p * p;
           
           alpha = 1 - p;
-          scale = 1 - 0.15 * p;
-          blur = 2 * p;
           var startY = yOff + as.parentIdx * _lineH;
           y = startY + (y - startY) * (1 - p);
         }
       }
 
-      if (alpha < 1 || scale < 1) {
+      if (alpha < 1) {
         _ctx.globalAlpha = alpha;
-        
-        // Apply scale transform
-        if (scale < 1) {
-          var centerX = 4;
-          _ctx.save();
-          _ctx.translate(centerX, y);
-          _ctx.scale(scale, scale);
-          _ctx.translate(-centerX, -y);
-        }
-        
-        // Apply blur effect
-        if (blur > 0) {
-          _ctx.filter = 'blur(' + blur + 'px)';
-        }
       }
 
       if (i === 0) {
@@ -341,16 +314,8 @@
       }
       _ctx.fillText(text, 4, y);
 
-      if (alpha < 1 || scale < 1) {
+      if (alpha < 1) {
         _ctx.globalAlpha = 1;
-        
-        if (scale < 1) {
-          _ctx.restore();
-        }
-        
-        if (blur > 0) {
-          _ctx.filter = 'none';
-        }
       }
     }
 
@@ -359,10 +324,10 @@
       var totalTime = as.duration + (as.count - 1) * as.stagger;
       if (now - as.startTime < totalTime) {
         requestAnimationFrame(function() { requestRender(); });
-      } else if (as.type === 'expand') {
+      } else {
+        // Clear animation state for both expand and collapse
         _animState = null;
       }
-      // collapse state cleared by pendingRebuild timer
     }
   }
 
