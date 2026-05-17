@@ -464,6 +464,7 @@ function loadDemoTree() {
 // ===== Tree Rendering =====
 function renderTree(data) {
   console.log('[renderTree] Rendering tree:', data ? data.name : 'null');
+  console.log('[renderTree] Container before:', { html: container.innerHTML.substring(0,50), classes: container.className, display: container.style.display });
   container.innerHTML = "";
   container.classList.remove('loading', 'init-msg');
   var rootLine = createNodeEl(data, "", true, true);
@@ -476,6 +477,7 @@ function renderTree(data) {
       container.appendChild(childLine);
     }
   }
+  console.log('[renderTree] Container after:', { html: container.innerHTML.substring(0,100), childCount: container.children.length, classes: container.className });
 }
 
 function createNodeEl(node, prefix, isLast, isRoot) {
@@ -857,7 +859,9 @@ function applyLoadedSettings(s) {
   }
   applyHWSettings(s);
   restoreHWState();
+  console.log('[applyLoadedSettings] After restoreHWState, container:', { display: container.style.display, visible: container.offsetParent !== null, html: container.innerHTML.substring(0,50) });
   if (typeof toggleJSMode === 'function') toggleJSMode();
+  console.log('[applyLoadedSettings] After toggleJSMode, container:', { display: container.style.display, visible: container.offsetParent !== null, html: container.innerHTML.substring(0,50) });
 }
 
 function restoreHWState() {
