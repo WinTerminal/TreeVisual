@@ -324,9 +324,8 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
              opacity 0.28s ease-out;
 }
 
-/* 展开状态: 显示完整内容 */
+/* 展开状态: JS会动态设置max-height为scrollHeight */
 .children-container.expanded {
-  max-height: 2000px;  /* 足够大的值，让transition生效 */
   opacity: 1;
 }
 

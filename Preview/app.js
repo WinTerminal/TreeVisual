@@ -577,7 +577,10 @@ function renderChildren(lineEl, arrowEl, children) {
 
   // 下一帧触发展开动画 (让浏览器先渲染初始状态)
   requestAnimationFrame(function() {
-    // 添加 expanded 类，触发 max-height 和 opacity 过渡
+    // 先设置max-height为实际内容高度 (scrollHeight)
+    container2.style.maxHeight = container2.scrollHeight + 'px';
+    
+    // 然后添加 expanded 类，触发 opacity 过渡
     container2.classList.add('expanded');
     
     // 动画结束后清理
