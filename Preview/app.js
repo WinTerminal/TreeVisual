@@ -549,7 +549,7 @@ function findNodeInTree(path) {
 // ===== Helper: Render children nodes =====
 function renderChildren(lineEl, arrowEl, children) {
   var container2 = document.createElement("div");
-  container2.className = "children-container";
+  container2.className = "children-container expanding";
 
   var basePrefix = getPrefixOfLine(lineEl);
   var plen = basePrefix.length;
@@ -568,6 +568,14 @@ function renderChildren(lineEl, arrowEl, children) {
   }
 
   lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
+
+  requestAnimationFrame(function() {
+    container2.style.maxHeight = container2.scrollHeight + 'px';
+    setTimeout(function() {
+      container2.classList.remove('expanding');
+      container2.style.maxHeight = '';
+    }, 350);
+  });
 }
 
 // ===== Lazy Loading: Toggle Directory =====
@@ -575,10 +583,21 @@ function toggleDir(arrowEl) {
   var lineEl = arrowEl.parentNode;
 
   if (arrowEl._expanded) {
-    // Collapse
+    // Collapse with animation
     var next = lineEl.nextSibling;
     if (next && next.className === "children-container") {
-      next.remove();
+      next.style.maxHeight = next.scrollHeight + 'px';
+      next.classList.add('collapsing');
+      
+      requestAnimationFrame(function() {
+        next.style.maxHeight = '0';
+        
+        setTimeout(function() {
+          if (next.parentNode) {
+            next.remove();
+          }
+        }, 250);
+      });
     }
     arrowEl.textContent = "\u25b6";
     arrowEl._expanded = false;
@@ -667,7 +686,7 @@ function saveSettings() {
     mode: (document.getElementById("modeSelect") || {}).value || 'dark',
     fontSize: parseInt((document.getElementById("fontSize") || {}).value, 10) || 14,
     fontFamily: (document.getElementById("fontFamily") || {}).value || '"Cascadia Code","Fira Code","JetBrains Mono",monospace',
-    animDuration: parseInt((document.getElementById("animSpeed") || {}).value, 10) || 200,
+    animDuration: parseInt((document.getElementById("animSpeed") || {}).value, 10) || 280,
     animEnabled: document.getElementById("animEnabled") ? document.getElementById("animEnabled").checked : true,
     enableJSMode: document.getElementById("enableJSMode") ? document.getElementById("enableJSMode").checked : false
   };

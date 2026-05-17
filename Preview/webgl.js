@@ -105,8 +105,8 @@
   // Settings (defaults)
   var _fontSize = 14;
   var _fontFamily = '"Cascadia Code","Fira Code","JetBrains Mono",monospace';
-  var _animDuration = 200;
-  var _animStagger = 30;
+  var _animDuration = 280;
+  var _animStagger = 35;
   var _animEnabled = true;
   var _colors = Object.assign({}, _themes.mocha);
 
@@ -276,28 +276,63 @@
       var m = _lineMeta[i];
       var y = yOff + i * _lineH;
       var alpha = 1;
+      var scale = 1;
+      var blur = 0;
 
       if (as) {
         if (as.type === 'expand' && i > as.parentIdx && i <= as.parentIdx + as.count) {
           var childIdx = i - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
           var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
-          p = 1 - (1 - p) * (1 - p) * (1 - p); // ease-out cubic
+          
+          // Elastic ease-out with overshoot
+          var c4 = (2 * Math.PI) / 3;
+          if (p === 0) {
+            p = 0;
+          } else if (p === 1) {
+            p = 1;
+          } else {
+            p = Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * c4) + 1;
+          }
+          
           alpha = p;
+          scale = 0.8 + 0.2 * p;
+          blur = Math.max(0, 3 * (1 - p));
           var startY = yOff + as.parentIdx * _lineH;
           y = startY + (y - startY) * p;
         } else if (as.type === 'collapse' && i > as.parentIdx && i <= as.parentIdx + as.count) {
           var childIdx = i - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
           var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
-          p = 1 - (1 - p) * (1 - p) * (1 - p); // ease-out cubic
+          
+          // Smooth cubic ease-in for collapse
+          p = p * p * p;
+          
           alpha = 1 - p;
+          scale = 1 - 0.15 * p;
+          blur = 2 * p;
           var startY = yOff + as.parentIdx * _lineH;
           y = startY + (y - startY) * (1 - p);
         }
       }
 
-      if (alpha < 1) _ctx.globalAlpha = alpha;
+      if (alpha < 1 || scale < 1) {
+        _ctx.globalAlpha = alpha;
+        
+        // Apply scale transform
+        if (scale < 1) {
+          var centerX = 4;
+          _ctx.save();
+          _ctx.translate(centerX, y);
+          _ctx.scale(scale, scale);
+          _ctx.translate(-centerX, -y);
+        }
+        
+        // Apply blur effect
+        if (blur > 0) {
+          _ctx.filter = 'blur(' + blur + 'px)';
+        }
+      }
 
       if (i === 0) {
         _ctx.fillStyle = _colors.root;
@@ -306,7 +341,17 @@
       }
       _ctx.fillText(text, 4, y);
 
-      if (alpha < 1) _ctx.globalAlpha = 1;
+      if (alpha < 1 || scale < 1) {
+        _ctx.globalAlpha = 1;
+        
+        if (scale < 1) {
+          _ctx.restore();
+        }
+        
+        if (blur > 0) {
+          _ctx.filter = 'none';
+        }
+      }
     }
 
     // Continue animation
