@@ -1,1 +1,1 @@
-{"version": 2, "name": "treevisual"}
+{"version": 2, "name": "treevisual", "rewrites": [{"source": "/api/tree", "destination": "/api/tree"}, {"source": "/api/settings", "destination": "/api/settings"}, {"source": "/api/home", "destination": "/api/home"}]}
