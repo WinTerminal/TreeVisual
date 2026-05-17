@@ -866,22 +866,36 @@ function applyThemeCSS(s) {
 }
 
 function loadSettings() {
+  // In preview mode, skip API call and use localStorage directly
+  if (typeof isPreviewMode === 'function' && isPreviewMode()) {
+    console.log('[Settings] Preview mode: using localStorage');
+    try {
+      var local = localStorage.getItem('treevisual_settings');
+      if (local) applyLoadedSettings(JSON.parse(local));
+    } catch(e) {}
+    return;
+  }
+
   var controller = new AbortController();
-  var timeout = setTimeout(function() { controller.abort(); }, 3000);
+  var timeout = setTimeout(function() { controller.abort(); }, 1500);  // Reduced from 3000ms
   
   fetch("/api/settings", { signal: controller.signal })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { 
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json(); 
+    })
     .then(function(s) {
       clearTimeout(timeout);
       if (!s || !s.showHidden && !s.enableHW && !s.language && !s.fontSize && !s.fontFamily && !s.mode) return;
       applyLoadedSettings(s);
     })
-    .catch(function() {
+    .catch(function(e) {
       clearTimeout(timeout);
+      console.log('[Settings] API failed, using localStorage:', e.message);
       try {
         var local = localStorage.getItem('treevisual_settings');
         if (local) applyLoadedSettings(JSON.parse(local));
-      } catch(e) {}
+      } catch(err) {}
     });
 }
 
@@ -961,17 +975,36 @@ function restoreHWState() {
   }
 }
 
-// ===== Service Status UI =====
+// ===== Environment Detection =====
+function isPreviewMode() {
+  var host = window.location.hostname;
+  return host === 'winterminal.github.io' || 
+         host.endsWith('.github.io') || 
+         host === 'localhost' || 
+         host.startsWith('127.') ||
+         host.includes('vercel.app') ||
+         host.includes('netlify.app');
+}
+
+// ===== Service Status UI (Optimized) =====
 var _serviceRunning = false;
+var _serviceCheckFailCount = 0;
+var _maxServiceCheckFails = 3;
 
 function checkServiceStatus() {
+  if (isPreviewMode()) return;
+
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 2000);
   
   fetch("/api/service/status", { signal: controller.signal })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { 
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json(); 
+    })
     .then(function(data) {
       clearTimeout(timeout);
+      _serviceCheckFailCount = 0;
       _serviceRunning = data.running;
       var label = document.getElementById("serviceStatusLabel");
       var btn = document.getElementById("serviceToggleBtn");
@@ -988,13 +1021,21 @@ function checkServiceStatus() {
         btn.classList.remove("running");
       }
     })
-    .catch(function() {
+    .catch(function(e) {
       clearTimeout(timeout);
       _serviceRunning = false;
+      _serviceCheckFailCount++;
+      
       var label = document.getElementById("serviceStatusLabel");
       var btn = document.getElementById("serviceToggleBtn");
       if (label) { label.textContent = "Off"; label.classList.remove("running"); }
       if (btn) { btn.textContent = "Start"; btn.classList.remove("running"); }
+      
+      if (_serviceCheckFailCount >= _maxServiceCheckFails) {
+        console.warn('[ServiceStatus] Stopping after', _maxServiceCheckFails, 'consecutive failures');
+        var intervals = setInterval(function(){}, 0); // Get interval ID
+        for (var i = 1; i <= intervals; i++) clearInterval(i);
+      }
     });
 }
 
@@ -1022,8 +1063,12 @@ function toggleService() {
     });
 }
 
-// Poll service status every 10 seconds
-setInterval(checkServiceStatus, 10000);
+// Smart polling: only in non-preview mode
+if (typeof isPreviewMode === 'function' && !isPreviewMode()) {
+  setInterval(checkServiceStatus, 10000);
+} else {
+  console.log('[ServiceStatus] Polling disabled in preview mode');
+}
 
 // ===== Initialize i18n on page load =====
 if (typeof applyI18n === 'function') {
