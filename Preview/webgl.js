@@ -322,6 +322,7 @@
       
       // Calculate offset for lines AFTER animation range
       // This makes content below smoothly follow the animation
+      // KEY: Only ONE layer of offset! No y-interpolation on animated lines!
       var offsetY = 0;
       if (totalAnimLines > 0) {
         if (as.type === 'expand') {
@@ -341,11 +342,13 @@
         }
       }
       
-      // Render animated lines with stagger effect
+      // Render animated lines with PURE ALPHA only (NO y-interpolation!)
+      // They stay at their target positions, just fade in/out
+      // The offsetY handles all the "following" effect
       for (var j = animStartIdx; j <= animEndIdx && j < _lines.length; j++) {
         var text = _lines[j];
         var m = _lineMeta[j];
-        var y = yOff + j * _lineH;
+        var y = yOff + j * _lineH;  // Keep at target position!
         var alpha = 1;
 
         if (as.type === 'expand') {
@@ -355,8 +358,9 @@
           p = 1 - Math.pow(1 - p, 3); // ease-out
           
           alpha = p;
-          var startY = yOff + as.parentIdx * _lineH;
-          y = startY + (y - startY) * p;  // Slide down from parent
+          // NO y-interpolation! Stay at target position.
+          // The offsetY below will push content down naturally.
+          
         } else if (as.type === 'collapse') {
           var childIdx = j - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
@@ -364,8 +368,8 @@
           p = p * p * p; // ease-in
           
           alpha = 1 - p;
-          var startY = yOff + as.parentIdx * _lineH;
-          y = startY + (y - startY) * (1 - p);  // Slide up to parent
+          // NO y-interpolation! Stay at target position until fully transparent.
+          // The offsetY below will pull content up naturally.
         }
 
         if (alpha < 1) _ctx.globalAlpha = alpha;
@@ -377,7 +381,7 @@
       }
       
       // Render static lines (after animation range) WITH OFFSET
-      // This creates the "follow-along" effect
+      // This is the ONLY offset applied - no double-counting!
       for (var k = animEndIdx + 1; k < _lines.length; k++) {
         _ctx.fillStyle = k === 0 ? _colors.root : (_lineMeta[k] && _lineMeta[k].isDir ? _colors.dir : _colors.text);
         _ctx.fillText(_lines[k], 4, yOff + k * _lineH + offsetY);
