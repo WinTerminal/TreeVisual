@@ -1048,18 +1048,35 @@ if (typeof applyI18n === 'function') {
 
   async function scanDirectoryJS(path) {
     if (!_directoryHandle) {
-      try {
-        _directoryHandle = await window.showDirectoryPicker();
-        currentPath = _directoryHandle.name;
-        pathInput.value = currentPath;
-      } catch (e) {
-        console.error('Directory picker cancelled or failed:', e);
-        return null;
-      }
+      console.warn('[scanDirectoryJS] No directory selected. Please click "Pick Dir" button first.');
+      return null;
     }
 
     var rootData = await buildTreeFromHandle(_directoryHandle, '/' + _directoryHandle.name);
     return rootData;
+  }
+
+  async function pickDirectoryJS() {
+    try {
+      _directoryHandle = await window.showDirectoryPicker();
+      currentPath = '/' + _directoryHandle.name;
+      pathInput.value = currentPath;
+      
+      var rootData = await buildTreeFromHandle(_directoryHandle, currentPath);
+      if (rootData) {
+        renderTree(rootData);
+        window._lastTreeData = rootData;
+        statusEl.textContent = currentPath + ' (JS Mode)';
+        
+        if (window.HWRenderer && window._hwEnabled) {
+          window.HWRenderer.loadTreeData(rootData);
+        }
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.error('Directory picker failed:', e);
+      }
+    }
   }
 
   async function buildTreeFromHandle(dirHandle, path) {
@@ -1148,6 +1165,7 @@ if (typeof applyI18n === 'function') {
     var cb = document.getElementById('enableJSMode');
     var warning = document.getElementById('jsModeWarning');
     var statusEl = document.getElementById('jsModeStatus');
+    var pickBtn = document.getElementById('jsPickDirBtn');
     _jsModeEnabled = cb ? cb.checked : false;
     
     if (warning) {
@@ -1157,6 +1175,11 @@ if (typeof applyI18n === 'function') {
     if (statusEl) {
       statusEl.style.display = _jsModeEnabled ? 'inline-flex' : 'none';
       statusEl.textContent = _jsModeEnabled ? (window.getLang && window.getLang() === 'zh' ? ' JS模式' : ' JS Mode') : '';
+    }
+
+    // Show/hide Pick Dir button
+    if (pickBtn) {
+      pickBtn.style.display = _jsModeEnabled ? '' : 'none';
     }
 
     // Reset directory handle when disabling
@@ -1187,6 +1210,7 @@ if (typeof applyI18n === 'function') {
   // Expose JS mode functions globally
   window.isJSMode = isJSMode;
   window.scanDirectoryJS = scanDirectoryJS;
+  window.pickDirectoryJS = pickDirectoryJS;
   window.buildTreeFromHandle = buildTreeFromHandle;
   window.expandDirectoryJS = expandDirectoryJS;
 }
