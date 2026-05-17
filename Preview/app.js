@@ -376,6 +376,7 @@ function findDemoNode(path) {
 }
 
 function loadDemoTree() {
+  console.log('[loadDemoTree] Starting...');
   _demoTree = {
     name: 'DemoProject',
     path: '/DemoProject',
@@ -457,10 +458,12 @@ function loadDemoTree() {
     window.HWRenderer.loadTreeData(_demoTree);
   }
   statusEl.textContent = '/DemoProject (Preview)';
+  console.log('[loadDemoTree] Complete');
 }
 
 // ===== Tree Rendering =====
 function renderTree(data) {
+  console.log('[renderTree] Rendering tree:', data ? data.name : 'null');
   container.innerHTML = "";
   container.classList.remove('loading', 'init-msg');
   var rootLine = createNodeEl(data, "", true, true);
@@ -956,9 +959,14 @@ if (typeof applyI18n === 'function') {
   (function checkPreview() {
     var host = window.location.hostname;
     var urlParams = new URLSearchParams(window.location.search);
+    console.log('[Init] checkPreview:', { host, isPreview: urlParams.get('preview'), isGithub: host.endsWith('.github.io') });
     if (urlParams.get('preview') === '1' || host === 'winterminal.github.io' || host.endsWith('.github.io')) {
+      console.log('[Init] Preview mode detected, loading demo tree...');
       document.body.classList.add('preview-mode');
       loadDemoTree();
+      console.log('[Init] loadDemoTree() called');
+    } else {
+      console.log('[Init] Not preview mode, skipping demo tree');
     }
   })();
 
