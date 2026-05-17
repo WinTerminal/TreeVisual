@@ -546,10 +546,12 @@ function findNodeInTree(path) {
   return search(treeData);
 }
 
-// ===== Helper: Render children nodes (Optimized) =====
+// ===== Helper: Render children nodes (Smooth Expand) =====
 function renderChildren(lineEl, arrowEl, children) {
   var container2 = document.createElement("div");
-  container2.className = "children-container expanding";
+  
+  // 初始状态: 收起 (CSS已定义 max-height:0; opacity:0)
+  container2.className = "children-container";
 
   var basePrefix = getPrefixOfLine(lineEl);
   var plen = basePrefix.length;
@@ -561,7 +563,7 @@ function renderChildren(lineEl, arrowEl, children) {
       childPrefix = basePrefix.substring(0, plen - 3) + "    ";
   }
   
-  // Batch DOM operations: create fragment first
+  // Batch DOM operations
   var fragment = document.createDocumentFragment();
   for (var i = 0; i < children.length; i++) {
     var isLast = (i == children.length - 1);
@@ -570,49 +572,41 @@ function renderChildren(lineEl, arrowEl, children) {
   }
   container2.appendChild(fragment);
 
+  // 插入DOM (此时容器高度为0，不影响布局)
   lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
 
-  // Trigger animation in next frame with optimized timing
+  // 下一帧触发展开动画 (让浏览器先渲染初始状态)
   requestAnimationFrame(function() {
-    requestAnimationFrame(function() {
-      container2.style.maxHeight = container2.scrollHeight + 'px';
-      
-      // Use shorter timeout matching CSS animation duration
-      setTimeout(function() {
-        container2.classList.remove('expanding');
-        container2.style.maxHeight = '';
-        
-        // Clean up GPU acceleration hints after animation
-        container2.style.willChange = 'auto';
-      }, 300);
-    });
+    // 添加 expanded 类，触发 max-height 和 opacity 过渡
+    container2.classList.add('expanded');
+    
+    // 动画结束后清理
+    setTimeout(function() {
+      // 移除 max-height 限制，让内容自然流动
+      container2.style.maxHeight = '';
+      container2.style.willChange = 'auto';
+    }, 350);  // 略大于 CSS transition 时间 (320ms + buffer)
   });
 }
 
-// ===== Lazy Loading: Toggle Directory (Optimized) =====
+// ===== Lazy Loading: Toggle Directory (Smooth Animation) =====
 function toggleDir(arrowEl) {
   var lineEl = arrowEl.parentNode;
 
   if (arrowEl._expanded) {
-    // Collapse with optimized animation
+    // 收起动画: 平滑过渡到 max-height: 0
     var next = lineEl.nextSibling;
-    if (next && next.className === "children-container") {
-      // Force reflow before starting animation
-      void next.offsetHeight;
+    if (next && (next.className === "children-container" || next.classList.contains("children-container"))) {
+      // 移除 expanded 类，添加 collapsed 类
+      next.classList.remove('expanded');
+      next.classList.add('collapsed');
       
-      next.style.maxHeight = next.scrollHeight + 'px';
-      next.classList.add('collapsing');
-      
-      requestAnimationFrame(function() {
-        next.style.maxHeight = '0';
-        
-        // Match CSS transition duration
-        setTimeout(function() {
-          if (next.parentNode) {
-            next.remove();
-          }
-        }, 250);
-      });
+      // 动画结束后移除容器
+      setTimeout(function() {
+        if (next.parentNode) {
+          next.remove();
+        }
+      }, 330);  // 匹配 CSS transition 时间 (320ms + buffer)
     }
     arrowEl.textContent = "\u25b6";
     arrowEl._expanded = false;

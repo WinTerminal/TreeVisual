@@ -307,64 +307,66 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
 }
 .tree-line:hover { background:var(--bg-hover) }
 
-/* Children Container Animation - GPU Accelerated */
+/* Children Container Animation - Smooth Height Transition */
 .children-container {
   overflow:hidden;
-  will-change: transform, opacity, max-height;
+  will-change: max-height, opacity;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   transform: translateZ(0);
-  transition:max-height 0.30s cubic-bezier(0.4, 0, 0.2, 1),
-             opacity 0.25s ease,
-             transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)
-}
-.children-container.collapsing {
-  max-height:0 !important;
-  opacity:0;
-  transform:translateY(-6px) scale(0.98);
-  pointer-events:none
-}
-.children-container.expanding {
-  animation:expandInGPU 0.30s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards
+  
+  /* 初始状态: 收起 */
+  max-height: 0;
+  opacity: 0;
+  
+  /* 高度过渡: 驱动下方内容移动 */
+  transition:max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+             opacity 0.28s ease-out;
 }
 
-@keyframes expandInGPU {
-  from {
-    opacity:0;
-    transform:translateY(-10px) scale(0.97)
-  }
-  to {
-    opacity:1;
-    transform:translateY(0) scale(1)
-  }
+/* 展开状态: 显示完整内容 */
+.children-container.expanded {
+  max-height: 2000px;  /* 足够大的值，让transition生效 */
+  opacity: 1;
 }
 
-/* Staggered child animation - GPU Accelerated */
+/* 收起状态: 隐藏 */
+.children-container.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* Staggered child fade-in effect */
 .children-container .tree-line {
   will-change: opacity, transform;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  animation:staggerFadeInGPU 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards
+  transform: translateZ(0);
+  
+  /* 初始状态: 透明 */
+  opacity: 0;
+  transform: translateX(-8px);
+  
+  /* 子元素过渡动画 */
+  transition:opacity 0.25s ease-out,
+             transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
-.children-container.expanding .tree-line:nth-child(1) { animation-delay:0ms }
-.children-container.expanding .tree-line:nth-child(2) { animation-delay:28ms }
-.children-container.expanding .tree-line:nth-child(3) { animation-delay:56ms }
-.children-container.expanding .tree-line:nth-child(4) { animation-delay:84ms }
-.children-container.expanding .tree-line:nth-child(5) { animation-delay:112ms }
-.children-container.expanding .tree-line:nth-child(6) { animation-delay:140ms }
-.children-container.expanding .tree-line:nth-child(7) { animation-delay:168ms }
-.children-container.expanding .tree-line:nth-child(n+8) { animation-delay:196ms }
 
-@keyframes staggerFadeInGPU {
-  from {
-    opacity:0;
-    transform:translateX(-6px) scale(0.98)
-  }
-  to {
-    opacity:1;
-    transform:translateX(0) scale(1)
-  }
+/* 展开时子元素可见 */
+.children-container.expanded .tree-line {
+  opacity: 1;
+  transform: translateX(0);
 }
+
+/* Staggered delay for children */
+.children-container.expanded .tree-line:nth-child(1) { transition-delay:0ms }
+.children-container.expanded .tree-line:nth-child(2) { transition-delay:25ms }
+.children-container.expanded .tree-line:nth-child(3) { transition-delay:50ms }
+.children-container.expanded .tree-line:nth-child(4) { transition-delay:75ms }
+.children-container.expanded .tree-line:nth-child(5) { transition-delay:100ms }
+.children-container.expanded .tree-line:nth-child(6) { transition-delay:125ms }
+.children-container.expanded .tree-line:nth-child(7) { transition-delay:150ms }
+.children-container.expanded .tree-line:nth-child(n+8) { transition-delay:175ms }
 
 .dir-link {
   color:var(--accent-blue);

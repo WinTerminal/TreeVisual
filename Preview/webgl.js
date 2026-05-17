@@ -305,7 +305,28 @@
 
     // Batch rendering: group by color to minimize state changes
     if (as && animStartIdx >= 0) {
-      // Render static lines (before animation range)
+      // Calculate overall animation progress for offset
+      var overallProgress = 0;
+      var totalAnimLines = animEndIdx - animStartIdx + 1;
+      
+      if (as.type === 'expand') {
+        // For expand: use the last child's progress as overall
+        var lastDelay = (totalAnimLines - 1) * as.stagger;
+        overallProgress = Math.min(1, Math.max(0, (now - as.startTime - lastDelay) / as.duration));
+        overallProgress = 1 - Math.pow(1 - overallProgress, 3); // ease-out
+      } else if (as.type === 'collapse') {
+        // For collapse: use the first child's progress as overall
+        overallProgress = Math.min(1, Math.max(0, (now - as.startTime) / as.duration));
+        overallProgress = overallProgress * overallProgress * overallProgress; // ease-in
+      }
+      
+      // Calculate offset for lines after animation range
+      var offsetY = totalAnimLines * _lineH * overallProgress;
+      if (as.type === 'collapse') {
+        offsetY = totalAnimLines * _lineH * (1 - overallProgress);
+      }
+      
+      // Render static lines (before animation range) - no offset
       for (var i = 0; i <= animStartIdx; i++) {
         if (i < _lines.length) {
           _ctx.fillStyle = i === 0 ? _colors.root : (_lineMeta[i] && _lineMeta[i].isDir ? _colors.dir : _colors.text);
@@ -313,7 +334,7 @@
         }
       }
       
-      // Render animated lines with alpha
+      // Render animated lines with alpha and individual stagger
       for (var j = animStartIdx; j <= animEndIdx && j < _lines.length; j++) {
         var text = _lines[j];
         var m = _lineMeta[j];
@@ -328,7 +349,7 @@
           
           alpha = p;
           var startY = yOff + as.parentIdx * _lineH;
-          y = startY + (y - startY) * p;
+          y = startY + (y - startY) * p;  // Slide from parent position
         } else if (as.type === 'collapse') {
           var childIdx = j - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
@@ -337,7 +358,7 @@
           
           alpha = 1 - p;
           var startY = yOff + as.parentIdx * _lineH;
-          y = startY + (y - startY) * (1 - p);
+          y = startY + (y - startY) * (1 - p);  // Slide to parent position
         }
 
         if (alpha < 1) _ctx.globalAlpha = alpha;
@@ -348,10 +369,11 @@
         if (alpha < 1) _ctx.globalAlpha = 1;
       }
       
-      // Render static lines (after animation range)
+      // Render static lines (after animation range) WITH OFFSET
+      // This makes content below follow the animation smoothly
       for (var k = animEndIdx + 1; k < _lines.length; k++) {
         _ctx.fillStyle = k === 0 ? _colors.root : (_lineMeta[k] && _lineMeta[k].isDir ? _colors.dir : _colors.text);
-        _ctx.fillText(_lines[k], 4, yOff + k * _lineH);
+        _ctx.fillText(_lines[k], 4, yOff + k * _lineH + offsetY);
       }
       
       // Continue animation
