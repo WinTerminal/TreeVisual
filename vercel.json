@@ -1,1 +1,0 @@
-{"version": 2, "name": "treevisual", "builds": [{"src": "Preview/**", "use": "@vercel/static"}], "routes": [{"src": "/(.*\\.(js|css|png|svg|ico|woff2?))", "dest": "Preview/$1"}, {"src": "/(.*)", "dest": "Preview/index.html"}]}
