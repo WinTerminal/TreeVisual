@@ -527,6 +527,49 @@ function createNodeEl(node, prefix, isLast, isRoot) {
   return line;
 }
 
+// ===== Helper: Find node in in-memory tree data =====
+function findNodeInTree(path) {
+  var treeData = window._lastTreeData || _demoTree;
+  if (!treeData || !path) return null;
+  
+  if (treeData.path === path) return treeData;
+  
+  function search(node) {
+    if (!node || !node.children) return null;
+    for (var i = 0; i < node.children.length; i++) {
+      if (node.children[i].path === path) return node.children[i];
+      var found = search(node.children[i]);
+      if (found) return found;
+    }
+    return null;
+  }
+  return search(treeData);
+}
+
+// ===== Helper: Render children nodes =====
+function renderChildren(lineEl, arrowEl, children) {
+  var container2 = document.createElement("div");
+  container2.className = "children-container";
+
+  var basePrefix = getPrefixOfLine(lineEl);
+  var plen = basePrefix.length;
+  var childPrefix = basePrefix;
+  if (plen >= 3 && basePrefix[plen-2] === "\u2500" && basePrefix[plen-1] === " ") {
+    if (basePrefix[plen-3] === "\u251c")
+      childPrefix = basePrefix.substring(0, plen - 3) + "\u2502   ";
+    else if (basePrefix[plen-3] === "\u2514")
+      childPrefix = basePrefix.substring(0, plen - 3) + "    ";
+  }
+  
+  for (var i = 0; i < children.length; i++) {
+    var isLast = (i == children.length - 1);
+    var childLine = createNodeEl(children[i], childPrefix, isLast, false);
+    container2.appendChild(childLine);
+  }
+
+  lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
+}
+
 // ===== Lazy Loading: Toggle Directory =====
 function toggleDir(arrowEl) {
   var lineEl = arrowEl.parentNode;
@@ -548,6 +591,15 @@ function toggleDir(arrowEl) {
 
     // Check if JS Mode is enabled
     console.log('[toggleDir] JS Mode check:', !!window.isJSMode, window.isJSMode ? window.isJSMode() : 'N/A', !!window.expandDirectoryJS, 'path:', dirPath);
+    
+    // First try to find children from in-memory tree data (for Preview/Demo mode)
+    var memChildren = findNodeInTree(dirPath);
+    if (memChildren && memChildren.children && memChildren.children.length > 0) {
+      console.log('[toggleDir] Using in-memory data for:', dirPath);
+      renderChildren(lineEl, arrowEl, memChildren.children);
+      return;
+    }
+    
     if (window.isJSMode && window.isJSMode() && window.expandDirectoryJS) {
       // Use File System API for expansion
       window.expandDirectoryJS(dirPath)
@@ -557,27 +609,7 @@ function toggleDir(arrowEl) {
             arrowEl._expanded = false;
             return;
           }
-
-          var container2 = document.createElement("div");
-          container2.className = "children-container";
-
-          var basePrefix = getPrefixOfLine(lineEl);
-          var plen = basePrefix.length;
-          var childPrefix = basePrefix;
-          if (plen >= 3 && basePrefix[plen-2] === "\u2500" && basePrefix[plen-1] === " ") {
-            if (basePrefix[plen-3] === "\u251c")
-              childPrefix = basePrefix.substring(0, plen - 3) + "\u2502   ";
-            else if (basePrefix[plen-3] === "\u2514")
-              childPrefix = basePrefix.substring(0, plen - 3) + "    ";
-          }
-          
-          for (var i = 0; i < data.children.length; i++) {
-            var isLast = (i == data.children.length - 1);
-            var childLine = createNodeEl(data.children[i], childPrefix, isLast, false);
-            container2.appendChild(childLine);
-          }
-
-          lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
+          renderChildren(lineEl, arrowEl, data.children);
         })
         .catch(function(e) {
           console.error("Expand failed in JS Mode:", e);
@@ -597,30 +629,7 @@ function toggleDir(arrowEl) {
           arrowEl._expanded = false;
           return;
         }
-
-        var container2 = document.createElement("div");
-        container2.className = "children-container";
-
-        // Calculate prefix for children
-        var basePrefix = getPrefixOfLine(lineEl);
-        // Convert parent's connector to child structural spacing:
-        //   ├ → │    (non-last parent → all children get bar)
-        //   └ →     (last parent → all children get spaces)
-        var plen = basePrefix.length;
-        var childPrefix = basePrefix;
-        if (plen >= 3 && basePrefix[plen-2] === "\u2500" && basePrefix[plen-1] === " ") {
-          if (basePrefix[plen-3] === "\u251c")
-            childPrefix = basePrefix.substring(0, plen - 3) + "\u2502   ";
-          else if (basePrefix[plen-3] === "\u2514")
-            childPrefix = basePrefix.substring(0, plen - 3) + "    ";
-        }
-        for (var i = 0; i < data.children.length; i++) {
-          var isLast = (i == data.children.length - 1);
-          var childLine = createNodeEl(data.children[i], childPrefix, isLast, false);
-          container2.appendChild(childLine);
-        }
-
-        lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
+        renderChildren(lineEl, arrowEl, data.children);
       })
       .catch(function(e) {
         console.error("Expand failed:", e);
