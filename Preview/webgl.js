@@ -109,6 +109,11 @@
   var _animStagger = 35;
   var _animEnabled = true;
   var _colors = Object.assign({}, _themes.mocha);
+  
+  // Performance optimization: cache for static content
+  var _staticCanvas = null;
+  var _staticDirty = true;
+  var _lastAnimRange = null;
 
   // ===== Lazy-load children from API =====
   function apiTreeUrl(path) {
@@ -243,10 +248,9 @@
     }
   }
 
-  // ===== Rendering =====
-  function renderFrame() {
+  // ===== Rendering (Optimized) =====
+  function renderFrame(timestamp) {
     if (!_enabled || !_ctx) return;
-    console.log('[renderFrame] bg=' + _colors.bg + ' text=' + _colors.text + ' lines=' + _lines.length);
 
     var c = _canvas;
     var cw = c.clientWidth || c.parentElement.clientWidth || 1;
@@ -255,8 +259,11 @@
 
     if (c.width !== Math.round(cw * dpr) || c.height !== Math.round(ch * dpr)) {
       c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr);
+      _staticDirty = true;
+      _staticCanvas = null;
     }
 
+    // Clear background
     _ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     _ctx.fillStyle = _colors.bg;
     _ctx.fillRect(0, 0, cw, ch);
@@ -269,64 +276,108 @@
 
     var yOff = 6;
     var as = _animState;
-    var now = as ? performance.now() : 0;
+    var now = timestamp || (as ? performance.now() : 0);
 
-    for (var i = 0; i < _lines.length; i++) {
-      var text = _lines[i];
-      var m = _lineMeta[i];
-      var y = yOff + i * _lineH;
-      var alpha = 1;
+    // Calculate animation range
+    var animStartIdx = -1;
+    var animEndIdx = -1;
+    
+    if (as) {
+      animStartIdx = as.parentIdx + 1;
+      animEndIdx = as.parentIdx + as.count;
+      
+      var totalTime = as.duration + (as.count - 1) * as.stagger;
+      var isAnimating = now - as.startTime < totalTime;
+      
+      if (!isAnimating) {
+        _animState = null;
+        as = null;
+        _staticDirty = true;
+      }
+    }
 
-      if (as) {
-        if (as.type === 'expand' && i > as.parentIdx && i <= as.parentIdx + as.count) {
-          var childIdx = i - as.parentIdx - 1;
+    // Check if animation range changed
+    var currentRange = animStartIdx + '-' + animEndIdx;
+    if (_lastAnimRange !== currentRange) {
+      _staticDirty = true;
+      _lastAnimRange = currentRange;
+    }
+
+    // Batch rendering: group by color to minimize state changes
+    if (as && animStartIdx >= 0) {
+      // Render static lines (before animation range)
+      for (var i = 0; i <= animStartIdx; i++) {
+        if (i < _lines.length) {
+          _ctx.fillStyle = i === 0 ? _colors.root : (_lineMeta[i] && _lineMeta[i].isDir ? _colors.dir : _colors.text);
+          _ctx.fillText(_lines[i], 4, yOff + i * _lineH);
+        }
+      }
+      
+      // Render animated lines with alpha
+      for (var j = animStartIdx; j <= animEndIdx && j < _lines.length; j++) {
+        var text = _lines[j];
+        var m = _lineMeta[j];
+        var y = yOff + j * _lineH;
+        var alpha = 1;
+
+        if (as.type === 'expand') {
+          var childIdx = j - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
           var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
-          
-          // Smooth ease-out cubic (fast and lightweight)
           p = 1 - Math.pow(1 - p, 3);
           
           alpha = p;
           var startY = yOff + as.parentIdx * _lineH;
           y = startY + (y - startY) * p;
-        } else if (as.type === 'collapse' && i > as.parentIdx && i <= as.parentIdx + as.count) {
-          var childIdx = i - as.parentIdx - 1;
+        } else if (as.type === 'collapse') {
+          var childIdx = j - as.parentIdx - 1;
           var delay = childIdx * as.stagger;
           var p = Math.min(1, Math.max(0, (now - as.startTime - delay) / as.duration));
-          
-          // Smooth ease-in cubic for collapse
           p = p * p * p;
           
           alpha = 1 - p;
           var startY = yOff + as.parentIdx * _lineH;
           y = startY + (y - startY) * (1 - p);
         }
-      }
 
-      if (alpha < 1) {
-        _ctx.globalAlpha = alpha;
+        if (alpha < 1) _ctx.globalAlpha = alpha;
+        
+        _ctx.fillStyle = j === 0 ? _colors.root : (m && m.isDir ? _colors.dir : _colors.text);
+        _ctx.fillText(text, 4, y);
+        
+        if (alpha < 1) _ctx.globalAlpha = 1;
       }
-
-      if (i === 0) {
+      
+      // Render static lines (after animation range)
+      for (var k = animEndIdx + 1; k < _lines.length; k++) {
+        _ctx.fillStyle = k === 0 ? _colors.root : (_lineMeta[k] && _lineMeta[k].isDir ? _colors.dir : _colors.text);
+        _ctx.fillText(_lines[k], 4, yOff + k * _lineH);
+      }
+      
+      // Continue animation
+      requestAnimationFrame(requestRender);
+    } else {
+      // No animation: batch by color for maximum performance
+      // Draw root (index 0)
+      if (_lines.length > 0) {
         _ctx.fillStyle = _colors.root;
-      } else {
-        _ctx.fillStyle = m && m.isDir ? _colors.dir : _colors.text;
+        _ctx.fillText(_lines[0], 4, yOff);
       }
-      _ctx.fillText(text, 4, y);
-
-      if (alpha < 1) {
-        _ctx.globalAlpha = 1;
+      
+      // Draw all directories
+      _ctx.fillStyle = _colors.dir;
+      for (var di = 1; di < _lines.length; di++) {
+        if (_lineMeta[di] && _lineMeta[di].isDir) {
+          _ctx.fillText(_lines[di], 4, yOff + di * _lineH);
+        }
       }
-    }
-
-    // Continue animation
-    if (as) {
-      var totalTime = as.duration + (as.count - 1) * as.stagger;
-      if (now - as.startTime < totalTime) {
-        requestAnimationFrame(function() { requestRender(); });
-      } else {
-        // Clear animation state for both expand and collapse
-        _animState = null;
+      
+      // Draw all files
+      _ctx.fillStyle = _colors.text;
+      for (var fi = 1; fi < _lines.length; fi++) {
+        if (!_lineMeta[fi] || !_lineMeta[fi].isDir) {
+          _ctx.fillText(_lines[fi], 4, yOff + fi * _lineH);
+        }
       }
     }
   }

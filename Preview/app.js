@@ -546,7 +546,7 @@ function findNodeInTree(path) {
   return search(treeData);
 }
 
-// ===== Helper: Render children nodes =====
+// ===== Helper: Render children nodes (Optimized) =====
 function renderChildren(lineEl, arrowEl, children) {
   var container2 = document.createElement("div");
   container2.className = "children-container expanding";
@@ -561,37 +561,52 @@ function renderChildren(lineEl, arrowEl, children) {
       childPrefix = basePrefix.substring(0, plen - 3) + "    ";
   }
   
+  // Batch DOM operations: create fragment first
+  var fragment = document.createDocumentFragment();
   for (var i = 0; i < children.length; i++) {
     var isLast = (i == children.length - 1);
     var childLine = createNodeEl(children[i], childPrefix, isLast, false);
-    container2.appendChild(childLine);
+    fragment.appendChild(childLine);
   }
+  container2.appendChild(fragment);
 
   lineEl.parentNode.insertBefore(container2, lineEl.nextSibling);
 
+  // Trigger animation in next frame with optimized timing
   requestAnimationFrame(function() {
-    container2.style.maxHeight = container2.scrollHeight + 'px';
-    setTimeout(function() {
-      container2.classList.remove('expanding');
-      container2.style.maxHeight = '';
-    }, 350);
+    requestAnimationFrame(function() {
+      container2.style.maxHeight = container2.scrollHeight + 'px';
+      
+      // Use shorter timeout matching CSS animation duration
+      setTimeout(function() {
+        container2.classList.remove('expanding');
+        container2.style.maxHeight = '';
+        
+        // Clean up GPU acceleration hints after animation
+        container2.style.willChange = 'auto';
+      }, 300);
+    });
   });
 }
 
-// ===== Lazy Loading: Toggle Directory =====
+// ===== Lazy Loading: Toggle Directory (Optimized) =====
 function toggleDir(arrowEl) {
   var lineEl = arrowEl.parentNode;
 
   if (arrowEl._expanded) {
-    // Collapse with animation
+    // Collapse with optimized animation
     var next = lineEl.nextSibling;
     if (next && next.className === "children-container") {
+      // Force reflow before starting animation
+      void next.offsetHeight;
+      
       next.style.maxHeight = next.scrollHeight + 'px';
       next.classList.add('collapsing');
       
       requestAnimationFrame(function() {
         next.style.maxHeight = '0';
         
+        // Match CSS transition duration
         setTimeout(function() {
           if (next.parentNode) {
             next.remove();
@@ -608,13 +623,9 @@ function toggleDir(arrowEl) {
     var dirPath = arrowEl._nodePath;
     if (!dirPath) return;
 
-    // Check if JS Mode is enabled
-    console.log('[toggleDir] JS Mode check:', !!window.isJSMode, window.isJSMode ? window.isJSMode() : 'N/A', !!window.expandDirectoryJS, 'path:', dirPath);
-    
     // First try to find children from in-memory tree data (for Preview/Demo mode)
     var memChildren = findNodeInTree(dirPath);
     if (memChildren && memChildren.children && memChildren.children.length > 0) {
-      console.log('[toggleDir] Using in-memory data for:', dirPath);
       renderChildren(lineEl, arrowEl, memChildren.children);
       return;
     }

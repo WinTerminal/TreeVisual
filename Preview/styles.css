@@ -292,68 +292,77 @@ button:hover { background:var(--accent-purple); transform:scale(1.02) }
 }
 #treeText.init-msg { text-align:center; padding:40px; color:var(--accent-yellow); font-size:16px }
 
-/* Tree Lines */
+/* Tree Lines - GPU Optimized */
 .tree-line {
   white-space:pre;
   min-height:1.4em;
   line-height:1.4;
   padding:1px 4px;
   border-radius:2px;
-  transition:background-color 0.1s ease, opacity 0.2s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)
+  will-change: background-color, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  transition:background-color 0.10s ease, opacity 0.18s ease
 }
 .tree-line:hover { background:var(--bg-hover) }
 
-/* Children Container Animation */
+/* Children Container Animation - GPU Accelerated */
 .children-container {
   overflow:hidden;
-  transition:max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+  will-change: transform, opacity, max-height;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  transition:max-height 0.30s cubic-bezier(0.4, 0, 0.2, 1),
              opacity 0.25s ease,
-             transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)
+             transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)
 }
 .children-container.collapsing {
   max-height:0 !important;
   opacity:0;
-  transform:translateY(-8px) scaleY(0.95);
+  transform:translateY(-6px) scale(0.98);
   pointer-events:none
 }
 .children-container.expanding {
-  animation:expandIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards
+  animation:expandInGPU 0.30s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards
 }
 
-@keyframes expandIn {
+@keyframes expandInGPU {
   from {
     opacity:0;
-    transform:translateY(-12px) scaleY(0.9);
-    filter:blur(2px)
+    transform:translateY(-10px) scale(0.97)
   }
   to {
     opacity:1;
-    transform:translateY(0) scaleY(1);
-    filter:blur(0)
+    transform:translateY(0) scale(1)
   }
 }
 
-/* Staggered child animation */
+/* Staggered child animation - GPU Accelerated */
 .children-container .tree-line {
-  animation:staggerFadeIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) backwards
+  will-change: opacity, transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  animation:staggerFadeInGPU 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards
 }
 .children-container.expanding .tree-line:nth-child(1) { animation-delay:0ms }
-.children-container.expanding .tree-line:nth-child(2) { animation-delay:30ms }
-.children-container.expanding .tree-line:nth-child(3) { animation-delay:60ms }
-.children-container.expanding .tree-line:nth-child(4) { animation-delay:90ms }
-.children-container.expanding .tree-line:nth-child(5) { animation-delay:120ms }
-.children-container.expanding .tree-line:nth-child(6) { animation-delay:150ms }
-.children-container.expanding .tree-line:nth-child(7) { animation-delay:180ms }
-.children-container.expanding .tree-line:nth-child(n+8) { animation-delay:210ms }
+.children-container.expanding .tree-line:nth-child(2) { animation-delay:28ms }
+.children-container.expanding .tree-line:nth-child(3) { animation-delay:56ms }
+.children-container.expanding .tree-line:nth-child(4) { animation-delay:84ms }
+.children-container.expanding .tree-line:nth-child(5) { animation-delay:112ms }
+.children-container.expanding .tree-line:nth-child(6) { animation-delay:140ms }
+.children-container.expanding .tree-line:nth-child(7) { animation-delay:168ms }
+.children-container.expanding .tree-line:nth-child(n+8) { animation-delay:196ms }
 
-@keyframes staggerFadeIn {
+@keyframes staggerFadeInGPU {
   from {
     opacity:0;
-    transform:translateX(-8px)
+    transform:translateX(-6px) scale(0.98)
   }
   to {
     opacity:1;
-    transform:translateX(0)
+    transform:translateX(0) scale(1)
   }
 }
 
