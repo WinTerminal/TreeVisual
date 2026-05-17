@@ -4,6 +4,10 @@
 [![Version](https://img.shields.io/badge/version-v1.1.4-7aa2f7?style=flat)]()
 [![Release](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml/badge.svg)](https://github.com/WinTerminal/TreeVisual/actions/workflows/release.yml)
 
+<p align="center">
+  <img src="TreeViz-logo.png" alt="TreeVisual Logo" width="128" height="128">
+</p>
+
 # TreeVisual - Cross-platform Directory Tree Visualizer
 
 A modern directory tree tool with TUI mode and **WebUI** (lazy-loading tree browser with Canvas hardware-accelerated rendering). Built in C++17, zero third-party dependencies.  
